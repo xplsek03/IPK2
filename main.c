@@ -181,19 +181,53 @@ int main(char **argv, int argc) {
     }; // napln pole ip adresama, zjisti ktere se daji pouzit uz na zacatku + vytvor ARP zaznam na tomhle hostovi
     int address_count = 10; // pocet ip adres
 
+    // zalozeni socketu
     int client = socket(PF_INET, SOCK_RAW, IPPROTO_TCP); // jeden socket pro praci vice vlaken
     if (client < 0) 
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
+    // inicializace seznamu interfaces pro ping
+    int interfaces_count = 0; // kolik existuje rozhrani
+    struct interface_list *interfaces = getInterface(&interfaces_count);
+
+    for(int i = 0; i < interfaces_count; i++) {
+        // interfaces[i]
+        // proved ping na target: if ok vem adresu a masku a napinguj si dostatek volnych ip do "addresses"
+        // vytvor arp zaznam pro tyto nove adresy
+        // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
+        // pokud neni dostupny target z niceho tak vyhod chybu         
+    }
+
     // tady spust sniffer vlakno
+    
+    pthread_t tid; // thread ID
+
+    if (pthread_create(&tid, NULL, sniffer, NULL)) {
+		fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+		exit(1);
+	}
 
     // tohle zabal do funkce pro udp i pro tcp
     int target_ports_count = pt_arr_size;
-    char *target_address = "";
 
     for(int i = 0; i < target_ports_count; i++) {
         for(int spoofed_port = PORT_RANGE_START; spoofed_port < PORT_RANGE_END; spoofed_port++) {
-            send_syn(client, pt_arr[i], target_address, addresses, address_count, spoofed_port);
+            
+            // struktura = argument threadovane funkce
+            struct thread_arguments *arg = malloc(sizeof(struct thread_arguments));
+            if(arg == NULL)
+                goto malloc_error;
+            arg->client = client;
+            arg->target_port = pt_arr[i]; 
+            arg->target_address = host; 
+            arg->addresses = addresses;
+            arg->address_count = address_count; 
+            arg->spoofed_port = spoofed_port;
+
+            if(pthread_create(&tid, NULL, send_syn, &arg)) {
+                fprintf(stderr,"Chyba pri vytvareni vlakna.\n");
+                exit(1);
+            }
         }
     }
     
