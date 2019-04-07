@@ -8,7 +8,7 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <stdbool.h>
-
+#include <ctype.h>
 
 #include "functions.h"
 
@@ -40,7 +40,7 @@ int checkArg(char *argument) {
 int getCharCount(char *str, char z) {
     int c = 0;
     for(int i = 0; i < strlen(str); i++) {
-        if(!strcmp(str[i],z))
+        if(str[i] == z)
             c++;
     }
     return c;

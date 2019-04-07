@@ -10,6 +10,7 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <sys/types.h>
+#include <arpa/inet.h>
 
 #define PCKT_LEN 8192
 
