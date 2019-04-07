@@ -24,25 +24,19 @@ struct thread_arguments {
         int spoofed_port;
 };
 
-struct ipheader {
-    //#if BYTE_ORDER == LITTLE_ENDIAN 
-    unsigned char iph_ihl, iph_ver;    /* header length */ /* version */
-                     
-    //#endif
-    //#if BYTE_ORDER == BIG_ENDIAN 
-    //unsigned char  iph_ver, iph_ihl;   /* version */ /* header length */
-    //#endif
-    unsigned char  iph_tos;         /* type of service */
-    short   iph_len;         /* total length */
-    __u_short iph_ident;          /* identification */
-    short   iph_offset;         /* fragment offset field */
-    #define IP_DF 0x4000        /* dont fragment flag */
-    #define IP_MF 0x2000        /* more fragments flag */
-    unsigned char  iph_ttl;         /* time to live */
-    unsigned char  iph_protocol;           /* protocol */
-    __u_short iph_chksum;         /* checksum */
-    unsigned int iph_sourceip,iph_destip;  /* source and dest address */
-};
+/*struct ipheader {
+
+    unsigned char  iph_tos;        
+    short   iph_len;        
+    __u_short iph_ident;    
+    short   iph_offset;       
+    #define IP_DF 0x4000     
+    #define IP_MF 0x2000       
+    unsigned char  iph_ttl;        
+    unsigned char  iph_protocol;       
+    __u_short iph_chksum;        
+    unsigned int iph_sourceip,iph_destip;
+};*/
 
 struct tcpheader {
     unsigned short int tcph_srcport;
@@ -52,14 +46,14 @@ struct tcpheader {
     unsigned char      tcph_reserved:4, tcph_offset:4;
     // unsigned char tcph_flags;
     unsigned int
-        tcp_res1:4,      /*little-endian*/
-        tcph_hlen:4,     /*length of tcp header in 32-bit words*/
-        tcph_fin:1,      /*Finish flag "fin"*/
-        tcph_syn:1,       /*Synchronize sequence numbers to start a connection*/
-        tcph_rst:1,      /*Reset flag */
-        tcph_psh:1,      /*Push, sends data to the application*/
-        tcph_ack:1,      /*acknowledge*/
-        tcph_urg:1,      /*urgent pointer*/
+        tcp_res1:4,     
+        tcph_hlen:4,    
+        tcph_fin:1,      
+        tcph_syn:1,       
+        tcph_rst:1,      
+        tcph_psh:1,     
+        tcph_ack:1,      
+        tcph_urg:1,    
         tcph_res2:2;
     unsigned short int tcph_win;
     unsigned short int tcph_chksum;
@@ -75,5 +69,6 @@ struct single_interface {
 unsigned short csum(unsigned short *buf, int len);
 void *send_syn(void *arg);
 int portCount(int type, int *arr);
-void sniffer(void *arg);
+void *sniffer(void *arg, char *ifc);
 struct single_interface **getInterface(int *interfaces_count);
+void ping(int client, char *target, char *myip);

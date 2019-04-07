@@ -188,7 +188,7 @@ int main(char **argv, int argc) {
 
     // inicializace seznamu interfaces pro ping
     int interfaces_count = 0; // kolik existuje rozhrani
-    struct interface_list *interfaces = getInterface(&interfaces_count);
+    struct single_interface **interfaces = getInterface(&interfaces_count);
 
     for(int i = 0; i < interfaces_count; i++) {
         // interfaces[i]
@@ -202,10 +202,10 @@ int main(char **argv, int argc) {
     
     pthread_t tid; // thread ID
 
-    if (pthread_create(&tid, NULL, sniffer, NULL)) {
-		fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-		exit(1);
-	}
+    //if (pthread_create(&tid, NULL, sniffer, NULL)) {
+	//	fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+	//	exit(1);
+	//}
 
     // tohle zabal do funkce pro udp i pro tcp
     int target_ports_count = pt_arr_size;
