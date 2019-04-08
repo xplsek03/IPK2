@@ -190,17 +190,59 @@ int main(char **argv, int argc) {
     int interfaces_count = 0; // kolik existuje rozhrani
     struct single_interface **interfaces = getInterface(&interfaces_count);
 
+    pthread_t interface_loop; // thread ID
+    bool ping_succ = false; // jestli byl kazdy z pingu ok
+    int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
+    int some_ping_succ = false; // alespon jeden ping z jakehokoliv rozhrani uspel
+
     for(int i = 0; i < interfaces_count; i++) {
-        // interfaces[i]
-        // proved ping na target: if ok vem adresu a masku a napinguj si dostatek volnych ip do "addresses"
-        // vytvor arp zaznam pro tyto nove adresy
-        // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
-        // pokud neni dostupny target z niceho tak vyhod chybu         
+
+        ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
+
+        // vytvor argumenty pingu
+        struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
+        if(ping_arg == NULL)
+            goto malloc_error;
+        ping_arg->client = client;
+        ping_arg->target = host;
+        ping_arg->ip = interfaces[i]->ip;
+        ping_arg->ok = &ping_succ;
+        ping_arg->ifc = interfaces[i]->name;
+
+        // spust vlakno s pingem
+        while(repeated_ping < 2 || !ping_succ) {
+
+            if (pthread_create(&interface_loop, NULL, ping, &ping_arg)) {
+                fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+                exit(1);
+            }
+            pthread_join(interface_loop, NULL); // pockej nez dojede jeden ping
+            pthread_detach(interface_loop); // ukonci vlakno a jed znovu
+
+            if(ping_succ) { // ping prosel
+                interfaces[i]->usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
+                some_ping_succ = true; // jeno rozhrani proslo
+                // vem adresu a masku a napinguj si dostatek volnych ip do "addresses"
+                // vytvor arp zaznam pro tyto nove adresy
+                // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
+                // pokud neni dostupny target z niceho tak vyhod chybu
+                break;  
+            }
+            else { // tri pokusy
+                repeated_ping++;
+                sleep(1); // pockej jednu sekundu na dalsi ping
+            }
+
+        }
+
+        // tohle by slo asi udelat misto smycky zaraz, ale mohly by se tam mlatit libpcap vysledky pingu. mozna na konci
+
     }
 
+    if(!some_ping_succ) // target nejde pingnout z zadneho interface
+        goto host_error;
+
     // tady spust sniffer vlakno
-    
-    pthread_t tid; // thread ID
 
     //if (pthread_create(&tid, NULL, sniffer, NULL)) {
 	//	fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
@@ -209,6 +251,7 @@ int main(char **argv, int argc) {
 
     // tohle zabal do funkce pro udp i pro tcp
     int target_ports_count = pt_arr_size;
+    pthread_t single_port; // vlakno pro jednotlivy port
 
     for(int i = 0; i < target_ports_count; i++) {
         for(int spoofed_port = PORT_RANGE_START; spoofed_port < PORT_RANGE_END; spoofed_port++) {
@@ -224,7 +267,7 @@ int main(char **argv, int argc) {
             arg->address_count = address_count; 
             arg->spoofed_port = spoofed_port;
 
-            if(pthread_create(&tid, NULL, send_syn, &arg)) {
+            if(pthread_create(&single_port, NULL, send_syn, &arg)) {
                 fprintf(stderr,"Chyba pri vytvareni vlakna.\n");
                 exit(1);
             }
@@ -241,6 +284,10 @@ int main(char **argv, int argc) {
 
     range_error:
         fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
+        return 1;
+
+    host_error:
+        fprintf(stderr,"Host neexistuje nebo je nedostupny.\n");
         return 1;
 
 }

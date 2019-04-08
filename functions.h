@@ -10,6 +10,7 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #define PCKT_LEN 8192
 #define PORT_RANGE_START 50000
@@ -64,11 +65,29 @@ struct single_interface {
     char *name;
     char *ip;
     char *mask;
+    bool usable;
+};
+
+struct ping_arguments {
+    char *ip;
+    char *target;
+    int client;
+    bool *ok;
+    char *ifc;
+};
+
+struct ping_sniffer_arguments {
+    char *ifc;
+    char *ping_phrase;
+    int client;
+    bool *ok;
 };
 
 unsigned short csum(unsigned short *buf, int len);
 void *send_syn(void *arg);
 int portCount(int type, int *arr);
 void *sniffer(void *arg, char *ifc);
+void *ping_sniffer(void *arg);
 struct single_interface **getInterface(int *interfaces_count);
-void ping(int client, char *target, char *myip);
+void *ping(void *arg);
+void ping_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
