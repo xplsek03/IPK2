@@ -21,4 +21,6 @@
 
 void *ping_sniffer(void *arg);
 void ping_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
+void *ping_decoy_sniffer(void *arg);
+void ping_decoy_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
 void *ping(void *arg);

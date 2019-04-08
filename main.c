@@ -194,12 +194,23 @@ int main(char **argv, int argc) {
     int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
     int some_ping_succ = false; // alespon jeden ping z jakehokoliv rozhrani uspel
 
-    char *addresses[DECOYS]; // pole decoy ip adres
-    int address_count = 0; // pocet ip adres
+    char **addresses = malloc(sizeof(char)*15*DECOYS); // pole decoy ip adres
+    if(addresses == NULL)
+        goto malloc_error;
+    int decoy_count = 0; // pocet ip adres
+    int passed_interfaces = 0; // 0..1..2: snizuje se pocet pouzitych decoy adres z kazdeho dalsiho rozhrani
 
     for(int i = 0; i < interfaces_count; i++) {
 
         ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
+
+        // vyrob plibcap capture filter
+        char phrase[10+strlen(interfaces[i]->ip)+strlen(host)];
+        strcat(phrase, "dst ");
+        strcat(phrase, interfaces[i]->ip);
+        strcat(phrase, " src ");
+        strcat(phrase, host);
+        phrase[10+strlen(interfaces[i]->ip)+strlen(host)-1] = '\0';
 
         // vytvor argumenty pingu
         struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
@@ -210,6 +221,7 @@ int main(char **argv, int argc) {
         ping_arg->ip = interfaces[i]->ip;
         ping_arg->ok = &ping_succ;
         ping_arg->ifc = interfaces[i]->name;
+        ping_arg->filter = phrase;
 
         // spust vlakno s pingem
         while(repeated_ping < 2 || !ping_succ) {
@@ -222,15 +234,18 @@ int main(char **argv, int argc) {
             pthread_detach(interface_loop); // ukonci vlakno a jed znovu
 
             if(ping_succ) { // ping prosel
+                passed_interfaces++; // pocet rozhrani co prosly
                 interfaces[i]->usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
                 some_ping_succ = true; // jedno rozhrani proslo
 
-                // postupne napinguj plne pole addresses
-                generate_decoy_ips(interfaces[i]->ip, interfaces[i]->mask, addresses);
+                generate_decoy_ips(*interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host);
 
-                // vytvor arp zaznam pro tyto nove adresy
+                if(decoy_count > 0);
+                    // vytvor arp zaznam pro tyto nove adresy
+                
                 // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
                 // pokud neni dostupny target z niceho tak vyhod chybu
+                
                 break;  
             }
             else { // tri pokusy
@@ -269,7 +284,7 @@ int main(char **argv, int argc) {
             arg->target_port = pt_arr[i]; 
             arg->target_address = host; 
             arg->addresses = addresses;
-            arg->address_count = address_count; 
+            arg->address_count = decoy_count; 
             arg->spoofed_port = spoofed_port;
 
             if(pthread_create(&single_port, NULL, send_syn, &arg)) {
@@ -278,6 +293,8 @@ int main(char **argv, int argc) {
             }
         }
     }
+
+    free(addresses);
     
     wrong_arguments:
         fprintf(stderr,"Spatne zadane argumenty programu.\n");

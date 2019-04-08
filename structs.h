@@ -23,11 +23,12 @@ struct ping_arguments {
     int client;
     bool *ok;
     char *ifc;
+    char *filter;
 };
 
 struct ping_sniffer_arguments {
     char *ifc;
-    char *ping_phrase;
+    char *filter;
     int client;
     bool *ok;
 };

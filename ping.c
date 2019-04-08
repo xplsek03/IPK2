@@ -25,10 +25,12 @@
 #include "ping.h"
 #endif
 
+// NORMALNI PING
+
 void *ping_sniffer(void *arg) {
     struct ping_sniffer_arguments args = *(struct ping_sniffer_arguments*)arg;
 	pcap_t *sniff;
-	char *filter = args.ping_phrase; // nastav vyhledavaci frazi na ping co jde zpet
+	char *filter = args.filter; // nastav vyhledavaci frazi na ping co jde zpet
 	char *dev = args.ifc;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	bpf_u_int32	netp;
@@ -110,18 +112,11 @@ void *ping(void *arg) { // http://www.enderunix.org/docs/en/rawipspoof/
 		exit(1);        
     }
 
-    // vyrob plibcap capture filter
-    char phrase[10+strlen(args.ip)+strlen(args.target)];
-    strcat(phrase, "dst ");
-    strcat(phrase, args.ip);
-    strcat(phrase, "src ");
-    strcat(phrase, args.target);
-    phrase[10+strlen(args.ip)+strlen(args.target)-1] = '\n';
-
-    ping_sniff_arg->ping_phrase = phrase;
+    ping_sniff_arg->filter = args.filter;
     ping_sniff_arg->client = args.client;
     ping_sniff_arg->ok = args.ok; // snad to ok preda pomoci odkazu..
     ping_sniff_arg->ifc = args.ifc;
+
 
     // vytvor vlakno se snifferem
     if(pthread_create(&ping_sniffer_thread, NULL, ping_sniffer, &ping_sniff_arg)) {

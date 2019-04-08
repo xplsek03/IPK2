@@ -183,24 +183,69 @@ struct single_interface **getInterface(int *interfaces_count) { // https://stack
 
 // vygeneruj decoy pro jedno konkretni rozhrani
 // pocet dalsich pripadnych pouzitych rozhrani osetri post. nahrazovanim v **addresses z funkce main()
-int generate_decoy_ips(char *ip, char *mask, char **addresses) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
+int generate_decoy_ips(struct single_interface interface, int *passed_interfaces, char **addresses, int *decoy_count, int client, char *target) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
+    
     struct in_addr ipaddress, subnetmask;
-
     // konverze adresy rozhrani
-    inet_pton(AF_INET, ip, &ipaddress);
-    inet_pton(AF_INET, mask, &subnetmask);
+    inet_pton(AF_INET, interface.ip, &ipaddress);
+    inet_pton(AF_INET, interface.mask, &subnetmask);
     // prvni a posledni adresa site
     unsigned long first_ip = ntohl(ipaddress.s_addr & subnetmask.s_addr);
     unsigned long last_ip = ntohl(ipaddress.s_addr | ~(subnetmask.s_addr));
     unsigned int network_byte_order; // konkretni ciselna decoy adresa
-    char str[15]; // decoy adresa
+    char decoy[15]; // decoy adresa
+
+    int add_decoy = 0; // lokalni iterator poctu pridavanych decoys z jednoho rozhrani
+
+    // pro kazdou subadresu v siti spust decoy ping test
     for (unsigned long ip = first_ip; ip <= last_ip; ++ip) {
         if(ip == first_ip || ip == last_ip) // sit ani broadcast nechces
             continue;
         network_byte_order = htonl(ip);
-        inet_ntop(AF_INET, &network_byte_order, str, INET_ADDRSTRLEN);
-        
-        // na adresu str zavolej ping, pokud bez odezvy pridej str do pole addresses
+        inet_ntop(AF_INET, &network_byte_order, decoy, INET_ADDRSTRLEN);
+
+        bool decoy_ping_succ = false; // pokud je adresa pouzivana, vrati true
+        pthread_t decoy_ping; // ping na decoy adresu
+
+        // vytvor filter pro libpcap
+        char phrase[10+strlen(interface.ip)+strlen(decoy)];
+        strcat(phrase, "dst ");
+        strcat(phrase, interface.ip);
+        strcat(phrase, " src ");
+        strcat(phrase, decoy);
+        phrase[10+strlen(interface.ip)+strlen(decoy)-1] = '\0';
+
+        // vytvor argumenty pro decoy ping
+        struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
+        if(ping_arg == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.");
+            exit(1);
+        }
+        ping_arg->client = client;
+        ping_arg->target = decoy;
+        ping_arg->ip = interface.ip;
+        ping_arg->ok = &decoy_ping_succ;
+        ping_arg->ifc = interface.name;
+        ping_arg->filter = phrase;
+
+        // vlakno s decoy pingem
+        if (pthread_create(&decoy_ping, NULL, ping, &ping_arg)) {
+            fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+            exit(1);
+        }
+        pthread_join(decoy_ping, NULL); // pockej nez dojede jeden ping
+        pthread_detach(decoy_ping); // ukonci vlakno a jed znovu
+
+        if(decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
+            decoy_ping_succ = false;
+        }
+        else { // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
+            if(add_decoy < (DECOYS / *passed_interfaces)) {
+                addresses[add_decoy] = decoy;
+                add_decoy++; // lokalni iterator
+                *decoy_count++; // globalni iterator decoy adres
+            }
+        }
 
     }  
 }

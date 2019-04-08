@@ -22,4 +22,4 @@ void *send_syn(void *arg);
 int portCount(int type, int *arr);
 void *sniffer(void *arg, char *ifc);
 struct single_interface **getInterface(int *interfaces_count);
-int generate_decoy_ips(char *ip, char *mask, char **addresses);
+int generate_decoy_ips(struct single_interface interface, int *passed_interfaces, char **addresses, int *decoy_count, int client, char *target);
