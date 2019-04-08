@@ -10,7 +10,15 @@
 #include <stdbool.h>
 #include <ctype.h>
 
+#ifndef STRUCTS_H
+#include "structs.h"
+#endif
+#ifndef FUNCTIONS_H
 #include "functions.h"
+#endif
+#ifndef PING_H
+#include "ping.h"
+#endif
 
 int checkArg(char *argument) {
     int range = 0; // -
@@ -171,15 +179,6 @@ int main(char **argv, int argc) {
         free(pt_arr);
         pt_arr = new_pt_arr;
     }
-    // ted jsou v pu_arr a pt_arr jednotlive porty, a v ret_pu a ret_pt je typ pole (1'-' 2',' 3'int'), pu_arr_size, pt_arr_size jsou velikosti
-    
-    char *addresses[10] = {"192.168.1.5","192.168.1.6",
-                        "192.168.1.50","192.168.1.53",
-                        "192.168.1.67","192.168.1.46",
-                        "192.168.1.23","192.168.1.105",
-                        "192.168.1.25","192.168.1.77"
-    }; // napln pole ip adresama, zjisti ktere se daji pouzit uz na zacatku + vytvor ARP zaznam na tomhle hostovi
-    int address_count = 10; // pocet ip adres
 
     // zalozeni socketu
     int client = socket(PF_INET, SOCK_RAW, IPPROTO_TCP); // jeden socket pro praci vice vlaken
@@ -194,6 +193,9 @@ int main(char **argv, int argc) {
     bool ping_succ = false; // jestli byl kazdy z pingu ok
     int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
     int some_ping_succ = false; // alespon jeden ping z jakehokoliv rozhrani uspel
+
+    char *addresses[DECOYS]; // pole decoy ip adres
+    int address_count = 0; // pocet ip adres
 
     for(int i = 0; i < interfaces_count; i++) {
 
@@ -221,8 +223,11 @@ int main(char **argv, int argc) {
 
             if(ping_succ) { // ping prosel
                 interfaces[i]->usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
-                some_ping_succ = true; // jeno rozhrani proslo
-                // vem adresu a masku a napinguj si dostatek volnych ip do "addresses"
+                some_ping_succ = true; // jedno rozhrani proslo
+
+                // postupne napinguj plne pole addresses
+                generate_decoy_ips(interfaces[i]->ip, interfaces[i]->mask, addresses);
+
                 // vytvor arp zaznam pro tyto nove adresy
                 // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
                 // pokud neni dostupny target z niceho tak vyhod chybu

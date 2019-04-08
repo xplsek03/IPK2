@@ -6,5 +6,5 @@ all: prime
 
 # pokud je mas spustit a neexistuji, mel by je napred vytvorit. run: all
 
-prime: #functions.h functions.c
-	gcc main.c functions.h functions.c -o scanner -lpthread -lpcap
+prime:
+	gcc main.c functions.h functions.c ping.h ping.c -o scanner -lpthread -lpcap
