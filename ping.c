@@ -15,9 +15,6 @@
 
 #define PCKT_LEN 8192
 
-#ifndef STRUCTS_H
-#include "structs.h"
-#endif
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif

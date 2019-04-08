@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <unistd.h> // sleep()
+#include <unistd.h>
 #include <pthread.h>
 #include <getopt.h>
 #include <string.h>
@@ -22,6 +22,17 @@ struct single_address {
     char *ip;
 };
 
+struct interface_arguments {
+    char *ifc;
+    char *filter;
+    int client;
+    struct single_address *addresses;
+    int decoy_count;
+    char *target_address; 
+    int pt_arr_size;
+    int *pt_arr;
+};
+
 struct single_interface {
     char *name;
     char *ip;
@@ -29,14 +40,12 @@ struct single_interface {
     bool usable;
 };
 
-
-struct thread_arguments {
+struct domain_arguments {
         int client;
-        int target_port; 
         char *target_address; 
-        struct single_address *addresses;
-        int address_count; 
-        int spoofed_port;
+        char *ip;
+        int pt_arr_size;
+        int *pt_arr;
 };
 
 struct tcpheader {
@@ -62,8 +71,11 @@ struct tcpheader {
 };
 
 unsigned short csum(unsigned short *buf, int len);
-void *send_syn(void *arg);
+void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
 int portCount(int type, int *arr);
-void *sniffer(void *arg, char *ifc);
+void *port_sniffer(void *arg);
 struct single_interface **getInterface(int *interfaces_count);
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target);
+void *interface_looper(void* arg);
+void *domain_loop(void *arg);
+int random(int lower, int upper);

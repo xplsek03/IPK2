@@ -17,9 +17,6 @@
 
 #define PCKT_LEN 8192
 
-#ifndef STRUCTS_H
-#include "structs.h"
-#endif
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
@@ -36,9 +33,7 @@ unsigned short csum(unsigned short *buf, int len) {
     return (unsigned short)(~sum);
 }
 
-void* send_syn(void *arg) {
-
-    struct thread_arguments args = *(struct thread_arguments*)arg;
+void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
 
     struct sockaddr_in spoof;
     // obsah paketu
@@ -51,17 +46,15 @@ void* send_syn(void *arg) {
     struct sockaddr_in sin, din;
     int one = 1;
 
-    // generate random address
-    char *spoofed_address = args.addresses[rand()%args.address_count].ip;
     // Address family
     sin.sin_family = AF_INET;
     din.sin_family = AF_INET;
     // Source port, can be any, modify as needed
-    sin.sin_port = htons(args.spoofed_port);
-    din.sin_port = htons(args.target_port);
+    sin.sin_port = htons(spoofed_port);
+    din.sin_port = htons(target_port);
     // Source IP, can be any, modify as needed
     sin.sin_addr.s_addr = inet_addr(spoofed_address);
-    din.sin_addr.s_addr = inet_addr(args.target_address);
+    din.sin_addr.s_addr = inet_addr(target_address);
     // IP structure
     ip->ihl = 5; // 4 ?
     ip->version = 4;
@@ -73,11 +66,11 @@ void* send_syn(void *arg) {
     ip->protocol = 6; // TCP
     ip->check = 0; // Done by kernel
     ip->saddr = inet_addr(spoofed_address);
-    ip->daddr = inet_addr(args.target_address);
+    ip->daddr = inet_addr(target_address);
     // The TCP structure. The source port, spoofed, we accept through the command line
-    tcp->tcph_srcport = htons(args.spoofed_port);
+    tcp->tcph_srcport = htons(spoofed_port);
     // The destination port, we accept through command line
-    tcp->tcph_destport = htons(args.target_port);
+    tcp->tcph_destport = htons(target_port);
     tcp->tcph_seqnum = htonl(1);
     tcp->tcph_acknum = 0;
     tcp->tcph_offset = 5;
@@ -90,18 +83,15 @@ void* send_syn(void *arg) {
     ip->check = csum((unsigned short *) buffer, (sizeof(struct iphdr) + sizeof(struct tcpheader)));
 
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
-    if(setsockopt(args.client, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+    if(setsockopt(client, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
         fprintf(stderr,"setsockopt() error.\n");
         exit(1);
     }
 
-    if(sendto(args.client, buffer, ip->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+    if(sendto(client, buffer, ip->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
         fprintf(stderr,"Chyba pri odesilani dat pres socket.\n");
         exit(1);
     }
-    free(arg);
-    arg = NULL; // mozna BUG
-    return NULL;
 }
 
 int portCount(int type, int *arr) {
@@ -115,30 +105,30 @@ int portCount(int type, int *arr) {
         return sizeof(arr)/sizeof(int);   
 }
 
-void *sniffer(void *arg, char *ifc) {
+void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
+    struct ping_sniffer_arguments args = *(struct ping_sniffer_arguments*)arg;
 	pcap_t *sniff;
-	char *filter = "dst host 172.17.14.90 and ip"; // nastav vyhledavaci frazi na 
-	char *dev = ifc;
+	char *filter = args.filter;
+	char *dev = args.ifc;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	bpf_u_int32	netp;
 	bpf_u_int32	maskp;
 	struct bpf_program fprog;
 	int dl = 0, dl_len = 0;
-
 	if ((sniff = pcap_open_live(dev, 1514, 1, 500, errbuf)) == NULL) {
 		fprintf(stderr, "cannot open device %s: %s\n", dev, errbuf);
+        free(arg);
 		exit(1);
 	}
-
 	pcap_lookupnet(dev, &netp, &maskp, errbuf);
 	pcap_compile(sniff, &fprog, filter, 0, netp);
 	if (pcap_setfilter(sniff, &fprog) == -1) {
 		fprintf(stderr, "cannot set pcap filter %s: %s\n", filter, errbuf);
+        free(arg);
 		exit(1);
 	}
 	pcap_freecode(&fprog);
 	dl = pcap_datalink(sniff);
-	
 	switch(dl) {
 		case 1:
 			dl_len = 14;
@@ -147,13 +137,14 @@ void *sniffer(void *arg, char *ifc) {
 			dl_len = 14;
 			break;
 	}
+    // pracuj takhle: to co chytis ma prijit na nejakej port z argumentu, blabla.. 
+    // pokud dostanes rst, icmp, nic, tohle res v callback a podle toho nastavuj dalsi blbosti
     // -1 loop: sniffing az do chyby
-
-	//if (pcap_loop(sniff, -1, raw_packet_receiver, (u_char *)dl_len) < 0) {
-	//	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(pd));
+	//if (pcap_loop(sniff, -1, raw_packet_receiver, NULL) < 0) {
+	//	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
 	//	exit(1);
 	//}
-
+    free(arg);
     return NULL;
 }
 
@@ -257,4 +248,82 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         }
 
     }  
+}
+
+int random(int lower, int upper) { 
+    return (rand() % (upper - lower + 1)) + lower;
+}
+
+void *interface_looper(void* arg) {
+
+    pthread_t port_sniff;
+    struct interface_arguments args = *(struct interface_arguments*)arg;
+
+    // vytvor argumenty port snifferu
+    struct port_sniffer_arguments *port_sniff_arg = malloc(sizeof(struct port_sniffer_arguments));
+        if(port_sniff_arg == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.\n");
+            exit(1);        
+        }
+        port_sniff_arg->filter = args.filter;
+        port_sniff_arg->client = args.client;
+        port_sniff_arg->ifc = args.ifc;
+
+    // vytvor port sniffer a nahraj do nej argumenty
+    if (pthread_create(&port_sniff, NULL, port_sniffer, &port_sniff_arg)) {
+        fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+        exit(1);
+    }
+
+    // spocitej kolik domen je v tomto interface
+    int domain_counter = 0;
+    for(int i = 0; i < args.decoy_count; i ++) {
+        if(args.addresses[i].ifc == args.ifc) {
+            domain_counter++;
+        }
+    }
+    // vytvor vlakna z decoy domen, pocet domen v interface
+    pthread_t domain[domain_counter];
+    void *retval[domain_counter];
+    int c = 0; // vnitrni pocitadlo generatoru vlaken
+
+    for(int i = 0; i < args.decoy_count; i++) {
+        if(args.addresses[i].ifc == args.ifc) {
+            struct domain_arguments *domain_arg = malloc(sizeof(struct domain_arguments));
+            if(domain_arg == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }
+            domain_arg->client = args.client;
+            domain_arg->target_address = args.target_address; 
+            domain_arg->ip = args.addresses[i].ip;
+            domain_arg->pt_arr_size = args.pt_arr_size;
+            domain_arg->pt_arr = args.pt_arr;
+            
+            pthread_create(&domain[c++], NULL, domain_loop, &domain_arg);
+        }
+    }
+
+    // pockej na zbytek deti
+    for(int i = 0; i < domain_counter; i++)
+        pthread_join(domain[i], &retval[i]);
+
+    // pockej na port sniffer
+    pthread_join(port_sniff, NULL);
+    return NULL;
+} 
+
+void *domain_loop(void *arg) {
+
+    // rozbal argumenty
+    struct domain_arguments args = *(struct domain_arguments*)arg;
+
+    int mutex = args.pt_arr_size; // mutex max pocet pruchodu
+
+    int spoofed_port = random(PORT_RANGE_START, PORT_RANGE_END);
+
+    // projed max pocet portu - mutex - zabrani aby jely vickrat
+    for(int i = 0; i < args.pt_arr_size; i++) { // BUG: pri udp pridat pu_arr_size
+        send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
+    }
 }
