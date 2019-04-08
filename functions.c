@@ -23,6 +23,9 @@
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
+#ifndef PING_H
+#include "ping.h"
+#endif
 
 unsigned short csum(unsigned short *buf, int len) {
     unsigned long sum;
@@ -49,7 +52,7 @@ void* send_syn(void *arg) {
     int one = 1;
 
     // generate random address
-    char *spoofed_address = args.addresses[rand()%args.address_count];
+    char *spoofed_address = args.addresses[rand()%args.address_count].ip;
     // Address family
     sin.sin_family = AF_INET;
     din.sin_family = AF_INET;
@@ -183,13 +186,14 @@ struct single_interface **getInterface(int *interfaces_count) { // https://stack
 
 // vygeneruj decoy pro jedno konkretni rozhrani
 // pocet dalsich pripadnych pouzitych rozhrani osetri post. nahrazovanim v **addresses z funkce main()
-int generate_decoy_ips(struct single_interface interface, int *passed_interfaces, char **addresses, int *decoy_count, int client, char *target) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
+void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
     
     struct in_addr ipaddress, subnetmask;
     // konverze adresy rozhrani
     inet_pton(AF_INET, interface.ip, &ipaddress);
     inet_pton(AF_INET, interface.mask, &subnetmask);
-    // prvni a posledni adresa site
+    // prvni, posledni adresa site a adresa rozhrani v ciselnem formatu
+    unsigned long interface_ip = ntohl(ipaddress.s_addr);
     unsigned long first_ip = ntohl(ipaddress.s_addr & subnetmask.s_addr);
     unsigned long last_ip = ntohl(ipaddress.s_addr | ~(subnetmask.s_addr));
     unsigned int network_byte_order; // konkretni ciselna decoy adresa
@@ -199,7 +203,11 @@ int generate_decoy_ips(struct single_interface interface, int *passed_interfaces
 
     // pro kazdou subadresu v siti spust decoy ping test
     for (unsigned long ip = first_ip; ip <= last_ip; ++ip) {
-        if(ip == first_ip || ip == last_ip) // sit ani broadcast nechces
+
+        if(add_decoy == (DECOYS / *passed_interfaces)) // uz dosahl plneho pole pro tuto n-tou iteraci
+            break;
+
+        if(ip == first_ip || ip == last_ip || ip == interface_ip) // sit ani broadcast nechces
             continue;
         network_byte_order = htonl(ip);
         inet_ntop(AF_INET, &network_byte_order, decoy, INET_ADDRSTRLEN);
@@ -241,7 +249,8 @@ int generate_decoy_ips(struct single_interface interface, int *passed_interfaces
         }
         else { // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
             if(add_decoy < (DECOYS / *passed_interfaces)) {
-                addresses[add_decoy] = decoy;
+                addresses[add_decoy]->ip = decoy;
+                addresses[add_decoy]->ifc = interface.name;
                 add_decoy++; // lokalni iterator
                 *decoy_count++; // globalni iterator decoy adres
             }

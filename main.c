@@ -186,15 +186,14 @@ int main(char **argv, int argc) {
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     // inicializace seznamu interfaces pro ping
-    int interfaces_count = 0; // kolik existuje rozhrani
+    int interfaces_count = 0; // kolik existuje rozhrani ( - 1)
     struct single_interface **interfaces = getInterface(&interfaces_count);
 
     pthread_t interface_loop; // thread ID
     bool ping_succ = false; // jestli byl kazdy z pingu ok
     int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
-    int some_ping_succ = false; // alespon jeden ping z jakehokoliv rozhrani uspel
 
-    char **addresses = malloc(sizeof(char)*15*DECOYS); // pole decoy ip adres
+    struct single_address *addresses = malloc(sizeof(struct single_address)*DECOYS); // pole decoy ip adres
     if(addresses == NULL)
         goto malloc_error;
     int decoy_count = 0; // pocet ip adres
@@ -236,38 +235,56 @@ int main(char **argv, int argc) {
             if(ping_succ) { // ping prosel
                 passed_interfaces++; // pocet rozhrani co prosly
                 interfaces[i]->usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
-                some_ping_succ = true; // jedno rozhrani proslo
-
-                generate_decoy_ips(*interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host);
-
-                if(decoy_count > 0);
-                    // vytvor arp zaznam pro tyto nove adresy
-                
-                // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
-                // pokud neni dostupny target z niceho tak vyhod chybu
-                
-                break;  
+                generate_decoy_ips(*interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host);
+                break; // uz dal nepinguj z tohohle rozhrani
             }
             else { // tri pokusy
                 repeated_ping++;
                 sleep(1); // pockej jednu sekundu na dalsi ping
             }
-
         }
-
-        // tohle by slo asi udelat misto smycky zaraz, ale mohly by se tam mlatit libpcap vysledky pingu. mozna na konci
-
+        // BUG: tohle by slo asi udelat misto smycky zaraz, ale mohly by se tam mlatit libpcap vysledky pingu. mozna na konci
     }
 
-    if(!some_ping_succ) // target nejde pingnout z zadneho interface
+    // zpracovani pole decoy adres
+    if(passed_interfaces > 0) {
+        char arp_item[50];
+        for(int i = 0; i < decoy_count; i) {
+            strcat(arp_item, "sudo arp -s ");
+            strcat(arp_item, addresses[i].ip);
+            strcat(arp_item, " -D ");
+            strcat(arp_item, addresses[i].ifc);
+            arp_item[12+strlen(addresses[i].ip)+strlen(addresses[i].ifc)+5-1] = '\0';
+            system(arp_item);
+        }
+        
+        // dopln seznam adres o adresy rozhrani
+        if(DECOYS - decoy_count < interfaces_count + 1) {
+            addresses = realloc(addresses, sizeof(struct single_address)*(interfaces_count+1-DECOYS-decoy_count));
+        }
+        for(int i = 0; i < interfaces_count+1; i++) {
+            if(interfaces[i]->usable) {
+                addresses[decoy_count].ip = interfaces[i]->ip;
+                addresses[decoy_count].ifc = interfaces[i]->name;
+                decoy_count++;
+            }
+        }
+    }
+    else {
         goto host_error;
+    }
+
+    // mas k dispozici kompletni seznam address
+    // mas k dispozici 
+    // vyber si jedno rozhrani a uloz do "dev", pak na nem spust sniffer vlakno
 
     // tady spust sniffer vlakno
+    pthread_t scan_sniffer[passed_interfaces]; // vytvor pro kazde rozhrani jeden sniffer
 
-    //if (pthread_create(&tid, NULL, sniffer, NULL)) {
-	//	fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-	//	exit(1);
-	//}
+    if (pthread_create(&scan_sniffer, NULL, sniffer, NULL)) {
+		fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+		exit(1);
+	}
 
     // tohle zabal do funkce pro udp i pro tcp
     int target_ports_count = pt_arr_size;

@@ -12,12 +12,23 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 #include <ifaddrs.h>
+#include <stdbool.h>
 
-#define PCKT_LEN 8192
+struct ping_arguments {
+    char *ip;
+    char *target;
+    int client;
+    bool *ok;
+    char *ifc;
+    char *filter;
+};
 
-#ifndef FUNCTIONS_H
-#include "functions.h"
-#endif
+struct ping_sniffer_arguments {
+    char *ifc;
+    char *filter;
+    int client;
+    bool *ok;
+};
 
 void *ping_sniffer(void *arg);
 void ping_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
