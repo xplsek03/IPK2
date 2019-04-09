@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <unistd.h> // sleep()
+#include <unistd.h>
 #include <pthread.h>
 #include <getopt.h>
 #include <string.h>
@@ -107,7 +107,7 @@ int portCount(int type, int *arr) {
 }
 
 void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
-    struct ping_sniffer_arguments args = *(struct ping_sniffer_arguments*)arg;
+    struct ping_arguments args = *(struct ping_arguments*)arg;
 	pcap_t *sniff;
 	char *filter = args.filter;
 	char *dev = args.ifc;
@@ -153,12 +153,14 @@ struct single_interface *getInterface(int *interfaces_count) { // https://stacko
     struct ifaddrs *ifap, *ifa;
     struct sockaddr_in *smask, *sip;
     char *mask, *ip;
+
+    // vytvor argumenty co pujdou do *interfaces
     struct single_interface *interfaces = malloc(10 * sizeof(struct single_interface)); // pole max. deseti interfaces
-    
     if(interfaces == NULL) {
         fprintf(stderr,"Chyba alokace pameti.\n");
         exit(1);
     }
+
     getifaddrs(&ifap);
 
     for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -169,20 +171,18 @@ struct single_interface *getInterface(int *interfaces_count) { // https://stacko
             mask = inet_ntoa(smask->sin_addr);
             ip = inet_ntoa(sip->sin_addr);
 
-            if(!strcmp(ip, "127.0.0.1")) {
+            // skip localhost interface
+            if(!strcmp(ip, "127.0.0.1")) { // bug dalsi adresy
                 continue;
             }
 
-            interfaces[*interfaces_count].mask = malloc(sizeof(char) * 16);
+            // napln konkretni rozhrani
             memset(interfaces[*interfaces_count].mask,'\0',16);
-            interfaces[*interfaces_count].name = malloc(sizeof(char) * 20);
             memset(interfaces[*interfaces_count].name,'\0',20);
-            interfaces[*interfaces_count].ip = malloc(sizeof(char) * 16);
             memset(interfaces[*interfaces_count].ip,'\0',16);
-
-            interfaces[*interfaces_count].mask = mask;
-            interfaces[*interfaces_count].ip = ip;
-            interfaces[*interfaces_count].name = ifa->ifa_name;
+            strcpy(interfaces[*interfaces_count].mask,mask);
+            strcpy(interfaces[*interfaces_count].ip,ip);
+            strcpy(interfaces[*interfaces_count].name,ifa->ifa_name);
             interfaces[*interfaces_count].usable = false;
             (*interfaces_count)++;
         }
@@ -220,44 +220,49 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         inet_ntop(AF_INET, &network_byte_order, decoy, INET_ADDRSTRLEN);
 
         bool decoy_ping_succ = false; // pokud je adresa pouzivana, vrati true
-        pthread_t decoy_ping; // ping na decoy adresu
 
         // vytvor filter pro libpcap
-        char phrase[14+strlen(interface.ip)+strlen(decoy)];
+        char phrase[100];
+        memset(phrase,'\0',100);
         strcat(phrase, "dst ");
         strcat(phrase, interface.ip);
         strcat(phrase, " and src ");
         strcat(phrase, decoy);
-        phrase[14+strlen(interface.ip)+strlen(decoy)-1] = '\0';
 
-        // vytvor argumenty pro decoy ping
+        // argumenty pro decoy ping
         struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
         if(ping_arg == NULL) {
             fprintf(stderr,"Chyba pri alokaci pameti.");
             exit(1);
         }
-        ping_arg->client = client;
-        ping_arg->target = decoy;
-        ping_arg->ip = interface.ip;
-        ping_arg->ok = &decoy_ping_succ;
-        ping_arg->ifc = interface.name;
-        ping_arg->filter = phrase;
-
-        // vlakno s decoy pingem
-        if (pthread_create(&decoy_ping, NULL, ping, (void *)ping_arg)) {
-            fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+        ping_arg->ok = malloc(sizeof(bool*));
+        if(ping_arg->ok == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.");
             exit(1);
         }
-        pthread_join(decoy_ping, NULL); // pockej nez dojede jeden ping
-        pthread_detach(decoy_ping); // ukonci vlakno a jed znovu
+        memset(ping_arg->target,'\0',16);
+        memset(ping_arg->ifc,'\0',20);
+        memset(ping_arg->ip,'\0',16);
+        memset(ping_arg->filter,'\0',100);
+        strcpy(ping_arg->target,decoy);
+        strcpy(ping_arg->ip,interface.ip);
+        strcpy(ping_arg->ifc,interface.name);
+        strcpy(ping_arg->filter,phrase);
+        ping_arg->client = client;
+        ping_arg->ok = &decoy_ping_succ;
+
+        ping(ping_arg);
+        free(ping_arg);
 
         if(decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
             decoy_ping_succ = false;
         }
         else { // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
             if(add_decoy < (DECOYS / *passed_interfaces)) {
-                addresses[add_decoy]->ip = decoy;
-                addresses[add_decoy]->ifc = interface.name;
+                memset(addresses[add_decoy]->ip,'\0',16);
+                strcpy(addresses[add_decoy]->ip,decoy);
+                memset(addresses[add_decoy]->ifc,'\0',20);
+                strcpy(addresses[add_decoy]->ifc,interface.name);
                 add_decoy++; // lokalni iterator
                 *decoy_count++; // globalni iterator decoy adres
             }
@@ -281,9 +286,11 @@ void *interface_looper(void* arg) {
             fprintf(stderr,"Chyba pri alokaci pameti.\n");
             exit(1);        
         }
-        port_sniff_arg->filter = args.filter;
+        memset(port_sniff_arg->ifc,'\0',20);
+        memset(port_sniff_arg->filter,'\0',100);
+        strcpy(port_sniff_arg->filter,args.filter);
+        strcpy(port_sniff_arg->ifc,args.ifc);
         port_sniff_arg->client = args.client;
-        port_sniff_arg->ifc = args.ifc;
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&port_sniff, NULL, port_sniffer, (void *)port_sniff_arg)) {
@@ -306,15 +313,22 @@ void *interface_looper(void* arg) {
     for(int i = 0; i < args.decoy_count; i++) {
         if(args.addresses[i].ifc == args.ifc) {
             struct domain_arguments *domain_arg = malloc(sizeof(struct domain_arguments));
+            domain_arg->pt_arr = malloc(sizeof(int*));
             if(domain_arg == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
+            if(domain_arg->pt_arr == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }
             domain_arg->client = args.client;
-            domain_arg->target_address = args.target_address; 
-            domain_arg->ip = args.addresses[i].ip;
+            memset(domain_arg->target_address,'\0',16);
+            strcpy(domain_arg->target_address,args.target_address);
             domain_arg->pt_arr_size = args.pt_arr_size;
             domain_arg->pt_arr = args.pt_arr;
+            memset(domain_arg->ip,'\0',16);
+            strcpy(domain_arg->ip,args.addresses[i].ip);
             
             pthread_create(&domain[c++], NULL, domain_loop, (void *)domain_arg);
         }
@@ -326,6 +340,7 @@ void *interface_looper(void* arg) {
 
     // pockej na port sniffer
     pthread_join(port_sniff, NULL);
+    free(port_sniff_arg);
     return NULL;
 } 
 
@@ -344,8 +359,7 @@ void *domain_loop(void *arg) {
     }
 }
 
-// arg funcs
-
+// ARGUMENT PARSING: FUNKCE
 
 int checkArg(char *argument) {
 

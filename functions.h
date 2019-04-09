@@ -18,32 +18,32 @@
 #define PORT_RANGE_END 60000
 
 struct single_address {
-    char *ifc;
-    char *ip;
+    char ifc[20];
+    char ip[16];
 };
 
 struct interface_arguments {
-    char *ifc;
-    char *filter;
+    char ifc[20];
+    char filter[100];
     int client;
     struct single_address *addresses;
     int decoy_count;
-    char *target_address; 
+    char target_address[16];
     int pt_arr_size;
     int *pt_arr;
 };
 
 struct single_interface {
-    char *name;
-    char *ip;
-    char *mask;
+    char name[20];
+    char ip[16];
+    char mask[16];
     bool usable;
 };
 
 struct domain_arguments {
         int client;
-        char *target_address; 
-        char *ip;
+        char target_address[16]; 
+        char ip[16];
         int pt_arr_size;
         int *pt_arr;
 };

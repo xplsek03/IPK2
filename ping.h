@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <unistd.h> // sleep()
+#include <unistd.h>
 #include <pthread.h>
 #include <getopt.h>
 #include <string.h>
@@ -15,37 +15,31 @@
 #include <stdbool.h>
 
 struct ping_arguments {
-    char *ip;
-    char *target;
+    char ip[16];
+    char target[16];
     int client;
     bool *ok;
-    char *ifc;
-    char *filter;
+    char ifc[20];
+    char filter[100];
 };
 
-struct ping_sniffer_arguments {
-    char *ifc;
-    char *filter;
+struct ping_callback_arguments {
+    char ip[16];
+    char target[16];
     int client;
     bool *ok;
-    char *myip;
-    char *target;
+    char ifc[20];
+    char filter[100];
 };
 
 struct port_sniffer_arguments {
-    char *ifc;
-    char *filter;
+    char ifc[20];
+    char filter[100];
     int client;
 };
 
-struct ping_succ_arg {
-    char *myip;
-    char *target;
-    bool *ok;
-};
-
 void *ping_sniffer(void *arg);
-void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
+void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 void *ping_decoy_sniffer(void *arg);
 void ping_decoy_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
-void ping(int client, char *target, char *ip, bool *ok, char *ifc, char *filter);
+void ping(struct ping_arguments *ping_arg);

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <unistd.h> // sleep()
+#include <unistd.h>
 #include <pthread.h>
 #include <getopt.h>
 #include <string.h>
@@ -27,7 +27,7 @@
 
 void *ping_sniffer(void *arg) {
 
-    struct ping_sniffer_arguments args = *(struct ping_sniffer_arguments*)arg;
+    struct ping_arguments args = *(struct ping_arguments*)arg;
 
 	pcap_t *sniff;
     char *dev = args.ifc;			/* The device to sniff on */
@@ -49,7 +49,8 @@ void *ping_sniffer(void *arg) {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
         free(arg);
         exit(1);
-    }/* FILTR NEFUNGUJE VSUDE
+    }
+    /* FILTR NEFUNGUJE VSUDE
     if (pcap_compile(sniff, &fprog, filter, 0, net) == -1) {
         fprintf(stderr, "Couldn't parse filter %s: %s\n", filter, pcap_geterr(sniff));
         free(arg);
@@ -61,17 +62,30 @@ void *ping_sniffer(void *arg) {
         exit(1);
     }*/
 
-    printf("interface %s\n",dev);
-    printf("filter: %s\n",filter);
-
-
-    struct ping_succ_arg *ping_success_args = malloc(sizeof(struct ping_succ_arg));
-    ping_success_args->myip = args.myip;
-    ping_success_args->target = args.target;
-    ping_success_args->ok = args.ok;
+    // argumenty co posles do callbacku
+    struct ping_callback_arguments *ping_callback_arg = malloc(sizeof(struct ping_callback_arguments));
+    if(ping_callback_arg == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    ping_callback_arg->ok = malloc(sizeof(bool*));
+    if(ping_callback_arg->ok == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    memset(ping_callback_arg->target,'\0',16);
+    memset(ping_callback_arg->ifc,'\0',20);
+    memset(ping_callback_arg->ip,'\0',16);
+    memset(ping_callback_arg->filter,'\0',100);
+    strcpy(ping_callback_arg->target,args.target);
+    strcpy(ping_callback_arg->ip,args.ip);
+    strcpy(ping_callback_arg->ifc,args.ifc);
+    strcpy(ping_callback_arg->filter,args.filter);
+    ping_callback_arg->client = args.client;
+    ping_callback_arg->ok = args.ok;
 
     // sem nastav alarm na 2-3 s misto poctu odch paketu
-	if (pcap_loop(sniff, 5, (pcap_handler)ping_success, (unsigned char*)ping_success_args) < 0) {
+	if (pcap_loop(sniff, 5, (pcap_handler)ping_success, (unsigned char*)ping_callback_arg) < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
         free(arg);
 		exit(1);
@@ -85,9 +99,9 @@ void *ping_sniffer(void *arg) {
     return NULL;
 }
 
-void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
-    
-    arg = (struct ping_succ_arg *)arg;
+void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
+
+    arg = (struct ping_callback_arguments *)arg;
     // kvuli nefungujicim filtrum
     // parsovany paket
     struct iphdr *ip;
@@ -96,7 +110,7 @@ void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, c
     if (ip->protocol == 6) {
         tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
 
-        //unsigned short srcport = ntohs(tcp->tcph_srcport);
+        //unsigned short srcport = ntohs(tcp->tcph_srcport); PORTY SNAD ZATIM NEPOTREBUJU
         //unsigned short dstport = ntohs(tcp->tcph_destport);
 
         char srcname[16];
@@ -107,7 +121,7 @@ void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, c
         inet_ntop(AF_INET, &network_byte_order2, dstname, INET_ADDRSTRLEN);
 
         // pokud target posila zpet reply
-        if(!strcmp(dstname,arg->myip) && !strcmp(srcname,arg->target))
+        if(!strcmp(dstname,arg->ip) && !strcmp(srcname,arg->target))
             arg->ok = (bool *)true;
     }  
     free(arg);    
@@ -115,7 +129,7 @@ void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, c
     // ve sberu IP adres z adresy a masky tohohle interface
 }
 
-void ping(int client, char *target, char *myip, bool *ok, char *ifc, char *filter) { // http://www.enderunix.org/docs/en/rawipspoof/
+void ping(struct ping_arguments *ping_arg) { // http://www.enderunix.org/docs/en/rawipspoof/
 
     pthread_t ping_sniffer_thread; // id podrizeneho snifferu
 
@@ -133,8 +147,8 @@ void ping(int client, char *target, char *myip, bool *ok, char *ifc, char *filte
     ip.frag_off = 0;
     ip.ttl = 64;
     ip.protocol = IPPROTO_ICMP;
-    ip.saddr = inet_addr(myip);
-    ip.daddr = inet_addr(target);
+    ip.saddr = inet_addr(ping_arg->ip);
+    ip.daddr = inet_addr(ping_arg->target);
     ip.check = csum((unsigned short *)&ip, sizeof(ip));
     memcpy(packet, &ip, sizeof(ip));
     icmp.type = ICMP_ECHO;
@@ -144,7 +158,7 @@ void ping(int client, char *target, char *myip, bool *ok, char *ifc, char *filte
     icmp.checksum = csum((unsigned short *)&icmp, 8);
     memcpy(packet + 20, &icmp, 8);
 
-    if (setsockopt(client, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+    if (setsockopt(ping_arg->client, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
         fprintf(stderr,"setsockopt() error.\n");
         exit(1);
     }
@@ -152,37 +166,14 @@ void ping(int client, char *target, char *myip, bool *ok, char *ifc, char *filte
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = ip.daddr;
 
-    // vytvor argumenty pro ping_sniffer
-    struct ping_sniffer_arguments *ping_sniff_arg = malloc(sizeof(struct ping_sniffer_arguments));
-    if(ping_sniff_arg == NULL) {
-		fprintf(stderr,"Chyba pri alokaci pameti.\n");
-		exit(1);        
-    }
-
-    ping_sniff_arg->filter = malloc(sizeof(char) * 100);
-    memset(ping_sniff_arg->filter,'\0',100);
-    ping_sniff_arg->ok = malloc(sizeof(bool));
-    ping_sniff_arg->ifc = malloc(sizeof(char) * 20);
-    memset(ping_sniff_arg->ifc,'\0',20);
-    ping_sniff_arg->filter = filter;
-    ping_sniff_arg->client = client;
-    ping_sniff_arg->ok = ok;
-    ping_sniff_arg->ifc = ifc;
-    ping_sniff_arg->myip = myip;
-    ping_sniff_arg->target = target;
-
-    printf("z pingu do nej cpu: %s\n",ping_sniff_arg->filter);
-    printf("v args je: %s\n",filter);
-
-
     // vytvor vlakno se snifferem
-    if(pthread_create(&ping_sniffer_thread, NULL, ping_sniffer, (void *)ping_sniff_arg)) {
+    if(pthread_create(&ping_sniffer_thread, NULL, ping_sniffer, (void *)ping_arg)) {
         fprintf(stderr,"Chyba pri vytvareni vlakna.\n");
         exit(1);
     }
 
     // odesli ICMP ping
-	if (sendto(client, packet, 60, 0, (struct sockaddr *)&sin, sizeof(struct sockaddr)) < 0)  {
+	if (sendto(ping_arg->client, packet, 60, 0, (struct sockaddr *)&sin, sizeof(struct sockaddr)) < 0)  {
 		fprintf(stderr,"Chyba pri odesilani pingu pres socket. R: %s\n",strerror(errno));
 		exit(1);
     }
