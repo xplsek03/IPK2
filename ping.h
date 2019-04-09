@@ -28,6 +28,8 @@ struct ping_sniffer_arguments {
     char *filter;
     int client;
     bool *ok;
+    char *myip;
+    char *target;
 };
 
 struct port_sniffer_arguments {
@@ -36,8 +38,14 @@ struct port_sniffer_arguments {
     int client;
 };
 
+struct ping_succ_arg {
+    char *myip;
+    char *target;
+    bool *ok;
+};
+
 void *ping_sniffer(void *arg);
-void ping_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
+void ping_success(struct ping_succ_arg *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 void *ping_decoy_sniffer(void *arg);
 void ping_decoy_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
-void *ping(void *arg);
+void ping(int client, char *target, char *ip, bool *ok, char *ifc, char *filter);

@@ -12,7 +12,7 @@
 #include <sys/types.h>
 #include <stdbool.h>
 
-#define DECOYS 20
+#define DECOYS 5
 #define PCKT_LEN 8192
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
@@ -70,12 +70,15 @@ struct tcpheader {
     unsigned short int tcph_urgptr;
 };
 
+int rndm(int lower, int upper);
 unsigned short csum(unsigned short *buf, int len);
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
 int portCount(int type, int *arr);
 void *port_sniffer(void *arg);
-struct single_interface **getInterface(int *interfaces_count);
+struct single_interface *getInterface(int *interfaces_count);
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target);
 void *interface_looper(void* arg);
 void *domain_loop(void *arg);
-int random(int lower, int upper);
+int processArgument(char *argument,int ret, int **xu_arr);
+int getCharCount(char *str, char z);
+int checkArg(char *argument);

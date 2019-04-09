@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 #include <ifaddrs.h>
+#include <ctype.h>
 
 #define PCKT_LEN 8192
 
@@ -148,27 +149,42 @@ void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake 
     return NULL;
 }
 
-struct single_interface **getInterface(int *interfaces_count) { // https://stackoverflow.com/questions/18100761/obtaining-subnetmask-in-c
+struct single_interface *getInterface(int *interfaces_count) { // https://stackoverflow.com/questions/18100761/obtaining-subnetmask-in-c
     struct ifaddrs *ifap, *ifa;
     struct sockaddr_in *smask, *sip;
     char *mask, *ip;
-    struct single_interface **interfaces = malloc(10 * sizeof(struct single_interface)); // pole max. deseti interfaces
+    struct single_interface *interfaces = malloc(10 * sizeof(struct single_interface)); // pole max. deseti interfaces
+    
     if(interfaces == NULL) {
         fprintf(stderr,"Chyba alokace pameti.\n");
         exit(1);
     }
-    getifaddrs (&ifap);
+    getifaddrs(&ifap);
+
     for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
         if (ifa->ifa_addr->sa_family==AF_INET) {
+
             smask = (struct sockaddr_in *) ifa->ifa_netmask;
             sip = (struct sockaddr_in *) ifa->ifa_addr;
             mask = inet_ntoa(smask->sin_addr);
             ip = inet_ntoa(sip->sin_addr);
-            interfaces[*interfaces_count]->mask = mask;
-            interfaces[*interfaces_count]->ip = ip;
-            interfaces[*interfaces_count]->name = ifa->ifa_name;
-            interfaces[*interfaces_count]->usable = false;
-            interfaces_count++;
+
+            if(!strcmp(ip, "127.0.0.1")) {
+                continue;
+            }
+
+            interfaces[*interfaces_count].mask = malloc(sizeof(char) * 16);
+            memset(interfaces[*interfaces_count].mask,'\0',16);
+            interfaces[*interfaces_count].name = malloc(sizeof(char) * 20);
+            memset(interfaces[*interfaces_count].name,'\0',20);
+            interfaces[*interfaces_count].ip = malloc(sizeof(char) * 16);
+            memset(interfaces[*interfaces_count].ip,'\0',16);
+
+            interfaces[*interfaces_count].mask = mask;
+            interfaces[*interfaces_count].ip = ip;
+            interfaces[*interfaces_count].name = ifa->ifa_name;
+            interfaces[*interfaces_count].usable = false;
+            (*interfaces_count)++;
         }
     }
     freeifaddrs(ifap);
@@ -207,12 +223,12 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         pthread_t decoy_ping; // ping na decoy adresu
 
         // vytvor filter pro libpcap
-        char phrase[10+strlen(interface.ip)+strlen(decoy)];
+        char phrase[14+strlen(interface.ip)+strlen(decoy)];
         strcat(phrase, "dst ");
         strcat(phrase, interface.ip);
-        strcat(phrase, " src ");
+        strcat(phrase, " and src ");
         strcat(phrase, decoy);
-        phrase[10+strlen(interface.ip)+strlen(decoy)-1] = '\0';
+        phrase[14+strlen(interface.ip)+strlen(decoy)-1] = '\0';
 
         // vytvor argumenty pro decoy ping
         struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
@@ -228,7 +244,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         ping_arg->filter = phrase;
 
         // vlakno s decoy pingem
-        if (pthread_create(&decoy_ping, NULL, ping, &ping_arg)) {
+        if (pthread_create(&decoy_ping, NULL, ping, (void *)ping_arg)) {
             fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
             exit(1);
         }
@@ -250,7 +266,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
     }  
 }
 
-int random(int lower, int upper) { 
+int rndm(int lower, int upper) { 
     return (rand() % (upper - lower + 1)) + lower;
 }
 
@@ -270,7 +286,7 @@ void *interface_looper(void* arg) {
         port_sniff_arg->ifc = args.ifc;
 
     // vytvor port sniffer a nahraj do nej argumenty
-    if (pthread_create(&port_sniff, NULL, port_sniffer, &port_sniff_arg)) {
+    if (pthread_create(&port_sniff, NULL, port_sniffer, (void *)port_sniff_arg)) {
         fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
         exit(1);
     }
@@ -300,7 +316,7 @@ void *interface_looper(void* arg) {
             domain_arg->pt_arr_size = args.pt_arr_size;
             domain_arg->pt_arr = args.pt_arr;
             
-            pthread_create(&domain[c++], NULL, domain_loop, &domain_arg);
+            pthread_create(&domain[c++], NULL, domain_loop, (void *)domain_arg);
         }
     }
 
@@ -320,10 +336,96 @@ void *domain_loop(void *arg) {
 
     int mutex = args.pt_arr_size; // mutex max pocet pruchodu
 
-    int spoofed_port = random(PORT_RANGE_START, PORT_RANGE_END);
+    int spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
     // projed max pocet portu - mutex - zabrani aby jely vickrat
     for(int i = 0; i < args.pt_arr_size; i++) { // BUG: pri udp pridat pu_arr_size
         send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
     }
+}
+
+// arg funcs
+
+
+int checkArg(char *argument) {
+
+    int range = 0; // -
+    int col = 0; // ,
+    for(int i = 0; i < strlen(argument); i++) {
+        if(isdigit(argument[i])) {
+            continue;
+        }
+        else if(argument[i] == '-')
+            range++;
+        else if(argument[i] == ',')
+            col++;
+        else
+            return 0;       
+    } 
+    if(range > 1 || !isdigit(argument[strlen(argument)-1]) || (range > 0 && col > 0)) {
+        printf("vratil nulu.\n");
+        return 0;
+    }
+    
+    if(range > 1) {
+		return 1; // je tam jedna pomlcka		
+	}
+	else if(col > 1)
+		return 2; // jsou tam carky
+	else
+		return 3; // jsou tam jen cisla
+}
+
+int getCharCount(char *str, char z) {
+    int c = 0;
+    for(int i = 0; i < strlen(str); i++) {
+        if(str[i] == z)
+            c++;
+    }
+    return c;
+}
+
+int processArgument(char *argument,int ret, int **xu_arr) { // BUG zkontrolu jaby tam nebyly nahodou dva stejne porty
+    int size;
+    if(ret == 1) { // hledas -
+        *xu_arr = malloc(sizeof(int)*2);
+        size = 2;
+        if(*xu_arr == NULL)
+            return 2; // malloc error
+        int i = 0;
+        char *end;
+        char *p = strtok(argument, "-");
+        while (p != NULL) {
+            *xu_arr[i++] = (int)strtol(p, &end, 10);
+            p = strtok(NULL, "-");
+        }
+    }
+    else if(ret == 2) { // hledas ,
+        int l = getCharCount(argument,',');
+        *xu_arr = malloc(sizeof(int) * (l+1));
+        size = l+1;
+        if(*xu_arr == NULL)
+            return 2; // malloc error
+        int i = 0;
+        char *end;
+        char *p = strtok(argument, ",");
+        while (p != NULL) {
+            *xu_arr[i++] = (int)strtol(p, &end, 10);
+            p = strtok(NULL, ",");
+        }
+    }
+    else { // vkladas cely cislo do pole
+        *xu_arr = malloc(sizeof(int));
+        char *end;
+        if(*xu_arr == NULL)
+            return 2; // malloc error
+        *xu_arr[0] = (int)strtol(argument, &end, 10);
+        size = 1;
+    }
+
+    for(int i = 0; i < size; i++) {
+        if(*xu_arr[i] > 65535 || *xu_arr[i] < 0)
+            return 1; // chyba rozsahu int
+    }
+    return 0;
 }

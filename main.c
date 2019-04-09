@@ -17,83 +17,7 @@
 #include "ping.h"
 #endif
 
-int checkArg(char *argument) {
-    int range = 0; // -
-    int col = 0; // ,
-    for(int i = 0; i < strlen(argument); i++) {
-        if(isdigit(argument[i]))
-            continue;
-        else if(argument[i] == '-')
-            range++;
-        else if(argument[i] == ',')
-            col++;
-        else
-            return 0;       
-    } 
-    if(range > 1 || !isdigit(argument[strlen(argument)]) || (range > 0 && col > 0))
-        return 0;
-    
-    if(range > 1) {
-		return 1; // je tam jedna pomlcka		
-	}
-	else if(col > 1)
-		return 2; // jsou tam carky
-	else
-		return 3; // jsou tam jen cisla
-}
-
-int getCharCount(char *str, char z) {
-    int c = 0;
-    for(int i = 0; i < strlen(str); i++) {
-        if(str[i] == z)
-            c++;
-    }
-    return c;
-}
-
-int processArgument(char *argument,int ret, int *xu_arr) { // BUG zkontrolu jaby tam nebyly nahodou dva stejne porty
-    if(ret == 1) { // hledas -
-        xu_arr = malloc(sizeof(int)*2);
-        if(xu_arr == NULL)
-            return 2; // malloc error
-        int i = 0;
-        char *end;
-        char *p = strtok(argument, "-");
-        while (p != NULL) {
-            xu_arr[i++] = (int)strtol(p, &end, 10);
-            p = strtok(NULL, "-");
-        }
-    }
-    else if(ret == 2) { // hledas ,
-        int l = getCharCount(argument,',');
-        xu_arr = malloc(sizeof(int) * (l+1));
-        if(xu_arr == NULL)
-            return 2; // malloc error
-        int i = 0;
-        char *end;
-        char *p = strtok(argument, ",");
-        while (p != NULL) {
-            xu_arr[i++] = (int)strtol(p, &end, 10);
-            p = strtok(NULL, ",");
-        }
-    }
-    else { // vkladas cely cislo do pole
-        xu_arr = malloc(sizeof(int));
-        char *end;
-        if(xu_arr == NULL)
-            return 2; // malloc error
-        xu_arr[0] = (int)strtol(argument, &end, 10);
-    }
-
-    int size = sizeof(xu_arr)/sizeof(int);
-    for(int i = 0; i < size; i++) {
-        if(xu_arr[i] > 65535 || xu_arr[i] < 0)
-            return 1; // chyba rozsahu int
-    }
-    return 0;
-}
-
-int main(char **argv, int argc) {
+int main(int argc, char **argv) {
 
     srand(time(0)); // random
 
@@ -101,9 +25,6 @@ int main(char **argv, int argc) {
     char *pu = "";
     char *pt = "";
     char *host = "";
-    bool foundPu = false;
-    bool foundPt = false;
-    bool foundHost = false;
     int puc = 0;
     int ptc = 0;
     int hc = 0;
@@ -120,36 +41,31 @@ int main(char **argv, int argc) {
 
     // nalezeni argumentu
     for(int i = 1; i < argc; i++) {
-        if(foundPu) {
-            pu = argv[i];
-            puc++;
-            continue;
-        }
-        if(foundPt) {
-            pt = argv[i];
-            ptc++;
-            continue;
-        }
-        if(argv[i] == "-pu") {
+
+        if(!strcmp(argv[i],"-pu")) {
             if(i == argc-1) {
                 fprintf(stderr,"Spatne zadane argumenty programu.\n");
                 return 1;
             }
             else {
-                foundPu = true;
+                pu = argv[i+1];
+                i++;
+                puc++;
             }
         }
-        if(argv[i] == "-pt") {
+        else if(!strcmp(argv[i],"-pt")) {
             if(i == argc-1) {
                 fprintf(stderr,"Spatne zadane argumenty programu.\n");
                 return 1;
             }
-            else
-                foundPt = true;
+            else {
+                pt = argv[i+1];
+                i++;
+                ptc++;
+            }
         }
         else {
             host = argv[i];
-            foundHost = true;
             hc++;
         }
     }
@@ -164,12 +80,13 @@ int main(char **argv, int argc) {
     int ret_pu = checkArg(pu);
     int ret_pt = checkArg(pt);
     if(!ret_pu || !ret_pt) {
+        printf("?? %i %i\n",ret_pu,ret_pt);
         fprintf(stderr,"Spatne zadane argumenty programu.\n");
         return 1;
     }
 
-    int ret_pu2 = processArgument(pu,ret_pu,pu_arr);
-    int ret_pt2 = processArgument(pt,ret_pt,pt_arr);   
+    int ret_pu2 = processArgument(pu,ret_pu,&pu_arr);
+    int ret_pt2 = processArgument(pt,ret_pt,&pt_arr);   
     if(ret_pu2 == 2 || ret_pt2 == 2) {
         fprintf(stderr,"Chyba pri alokaci.\n");
         return 1;
@@ -197,19 +114,20 @@ int main(char **argv, int argc) {
     }
 
     // zalozeni socketu
-    int client = socket(PF_INET, SOCK_RAW, IPPROTO_TCP); // jeden socket pro praci vice vlaken
-    if (client < 0) 
-        fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
+
+    //int client = socket(PF_INET, SOCK_RAW, IPPROTO_TCP); // jeden socket pro praci vice vlaken
+    //if (client < 0) 
+        //fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
+    int client = 25;
 
     // inicializace seznamu interfaces pro ping
     int interfaces_count = 0; // kolik existuje rozhrani ( - 1)
-    struct single_interface **interfaces = getInterface(&interfaces_count);
+    struct single_interface *interfaces = getInterface(&interfaces_count);
 
-    pthread_t interface_loop; // thread ID
     bool ping_succ = false; // jestli byl kazdy z pingu ok
     int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
 
-    struct single_address *addresses = malloc((sizeof(char)*35+sizeof(struct single_address))*DECOYS); // pole decoy ip adres
+    struct single_address *addresses = malloc((sizeof(char)*36+sizeof(struct single_address))*DECOYS); // pole decoy ip adres
     if(addresses == NULL) {
         fprintf(stderr,"Chyba pri alokaci.\n");
         return 1;
@@ -222,41 +140,24 @@ int main(char **argv, int argc) {
 
         ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
 
-        // vyrob plibcap capture filter
-        char phrase[10+strlen(interfaces[i]->ip)+strlen(host)];
-        strcat(phrase, "dst ");
-        strcat(phrase, interfaces[i]->ip);
-        strcat(phrase, " src ");
-        strcat(phrase, host);
-        phrase[10+strlen(interfaces[i]->ip)+strlen(host)-1] = '\0';
-
-        // vytvor argumenty pingu
-        struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
-        if(ping_arg == NULL) {
-            fprintf(stderr,"Chyba pri alokaci.\n");
-            return 1;
-        }
-        ping_arg->client = client;
-        ping_arg->target = host;
-        ping_arg->ip = interfaces[i]->ip;
-        ping_arg->ok = &ping_succ;
-        ping_arg->ifc = interfaces[i]->name;
-        ping_arg->filter = phrase;
-
         // spust vlakno s pingem
         while(repeated_ping < 2 || !ping_succ) {
 
-            if (pthread_create(&interface_loop, NULL, ping, &ping_arg)) {
-                fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-                exit(1);
-            }
-            pthread_join(interface_loop, NULL); // pockej nez dojede jeden ping
-            pthread_detach(interface_loop); // ukonci vlakno a jed znovu. BUG: mozna reuse thread
+            // vyrob plibcap capture filter
+            char phrase[14+strlen(interfaces[i].ip)+strlen(host)];
+            memset(phrase,'\0',14+strlen(interfaces[i].ip)+strlen(host));
+            strcat(phrase, "dst ");
+            strcat(phrase, interfaces[i].ip);
+            strcat(phrase, " and src ");
+            strcat(phrase, host);
+            phrase[14+strlen(interfaces[i].ip)+strlen(host)-1] = '\0';
+
+            ping(client, host, interfaces[i].ip, &ping_succ, interfaces[i].name, phrase);
 
             if(ping_succ) { // ping prosel
                 passed_interfaces++; // pocet rozhrani co prosly
-                interfaces[i]->usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
-                generate_decoy_ips(*interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host);
+                interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
+                generate_decoy_ips(interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host);
                 break; // uz dal nepinguj z tohohle rozhrani
             }
             else { // tri pokusy
@@ -264,8 +165,11 @@ int main(char **argv, int argc) {
                 sleep(1); // pockej jednu sekundu na dalsi ping
             }
         }
+
         // BUG: tohle by slo asi udelat misto smycky zaraz, ale mohly by se tam mlatit libpcap vysledky pingu. mozna na konci
     }
+
+    printf("DECOYS\n");
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
@@ -284,9 +188,9 @@ int main(char **argv, int argc) {
             addresses = realloc(addresses, sizeof(struct single_address)*(interfaces_count+1+decoy_count));
 
         for(int i = 0; i < interfaces_count+1; i++) {
-            if(interfaces[i]->usable) {
-                addresses[decoy_count].ip = interfaces[i]->ip;
-                addresses[decoy_count].ifc = interfaces[i]->name;
+            if(interfaces[i].usable) {
+                addresses[decoy_count].ip = interfaces[i].ip;
+                addresses[decoy_count].ifc = interfaces[i].name;
                 decoy_count++;
             }
         }
@@ -302,7 +206,7 @@ int main(char **argv, int argc) {
     int c = 0; // interni citac vlaken snifferu portu
 
     for(int i = 0; i < interfaces_count; i++) {
-        if(interfaces[i]->usable) {
+        if(interfaces[i].usable) {
 
             // argumenty single_ifc->port snifferu + domain
             struct interface_arguments *interface_loop_arg = malloc(sizeof(struct interface_arguments));
@@ -311,23 +215,23 @@ int main(char **argv, int argc) {
                 exit(1);        
             }
             // vyrob plibcap capture filter, ktery zachyti SYN / RST / ICMP special
-            char phrase[10+strlen(interfaces[i]->ip)+strlen(host)];
+            char phrase[10+strlen(interfaces[i].ip)+strlen(host)];
             strcat(phrase, "xxx");
-            strcat(phrase, interfaces[i]->ip);
+            strcat(phrase, interfaces[i].ip);
             strcat(phrase, " xxx ");
             strcat(phrase, host);
-            phrase[10+strlen(interfaces[i]->ip)+strlen(host)-1] = '\0'; // BUG: dodelej
+            phrase[10+strlen(interfaces[i].ip)+strlen(host)-1] = '\0'; // BUG: dodelej
 
             interface_loop_arg->pt_arr_size = pt_arr_size;
             interface_loop_arg->addresses = addresses;
             interface_loop_arg->decoy_count = decoy_count;
             interface_loop_arg->filter = phrase;
             interface_loop_arg->client = client;
-            interface_loop_arg->ifc = interfaces[i]->name;
+            interface_loop_arg->ifc = interfaces[i].name;
             interface_loop_arg->target_address = host;
             interface_loop_arg->pt_arr = pt_arr;
 
-            if (pthread_create(&single_interface[c++], NULL, interface_looper, &interface_loop_arg)) {
+            if (pthread_create(&single_interface[c++], NULL, interface_looper, (void *)interface_loop_arg)) {
                 fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
                 exit(1);
             }  
