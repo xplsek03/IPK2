@@ -15,6 +15,8 @@
 #include <pcap.h>
 #include <ifaddrs.h>
 #include <ctype.h>
+#include <netdb.h>
+#include <linux/if_link.h>
 
 #define PCKT_LEN 8192
 
@@ -33,6 +35,7 @@ unsigned short csum(unsigned short *buf, int len) {
     sum += (sum >> 16);
     return (unsigned short)(~sum);
 }
+
 
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
 
@@ -109,12 +112,10 @@ int portCount(int type, int *arr) {
 void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
     struct ping_arguments args = *(struct ping_arguments*)arg;
 	pcap_t *sniff;
-	char *filter = args.filter;
 	char *dev = args.ifc;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	bpf_u_int32	netp;
 	bpf_u_int32	maskp;
-	struct bpf_program fprog;
 	int dl = 0, dl_len = 0;
 	if ((sniff = pcap_open_live(dev, 1514, 1, 500, errbuf)) == NULL) {
 		fprintf(stderr, "cannot open device %s: %s\n", dev, errbuf);
@@ -122,13 +123,7 @@ void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake 
 		exit(1);
 	}
 	pcap_lookupnet(dev, &netp, &maskp, errbuf);
-	pcap_compile(sniff, &fprog, filter, 0, netp);
-	if (pcap_setfilter(sniff, &fprog) == -1) {
-		fprintf(stderr, "cannot set pcap filter %s: %s\n", filter, errbuf);
-        free(arg);
-		exit(1);
-	}
-	pcap_freecode(&fprog);
+
 	dl = pcap_datalink(sniff);
 	switch(dl) {
 		case 1:
@@ -149,10 +144,8 @@ void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake 
     return NULL;
 }
 
-struct single_interface *getInterface(int *interfaces_count) { // https://stackoverflow.com/questions/18100761/obtaining-subnetmask-in-c
-    struct ifaddrs *ifap, *ifa;
-    struct sockaddr_in *smask, *sip;
-    char *mask, *ip;
+// http://man7.org/linux/man-pages/man3/getifaddrs.3.html pro pokrocile moznosti a ipv6
+struct single_interface *getInterface(int *interfaces_count) {
 
     // vytvor argumenty co pujdou do *interfaces
     struct single_interface *interfaces = malloc(10 * sizeof(struct single_interface)); // pole max. deseti interfaces
@@ -160,19 +153,32 @@ struct single_interface *getInterface(int *interfaces_count) { // https://stacko
         fprintf(stderr,"Chyba alokace pameti.\n");
         exit(1);
     }
+    struct ifaddrs *ifaddr, *ifa;
+    int family, s, n, m;
+    char host[16];
+    char mask[16];
 
-    getifaddrs(&ifap);
+    if (getifaddrs(&ifaddr) == -1) {
+        fprintf(stderr,"Chyba pri getifaddress.\n");
+        exit(1);
+    }
 
-    for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr->sa_family==AF_INET) {
+    for (ifa = ifaddr, n = 0; ifa != NULL; ifa = ifa->ifa_next, n++) {
 
-            smask = (struct sockaddr_in *) ifa->ifa_netmask;
-            sip = (struct sockaddr_in *) ifa->ifa_addr;
-            mask = inet_ntoa(smask->sin_addr);
-            ip = inet_ntoa(sip->sin_addr);
+        if (ifa->ifa_addr == NULL)
+            continue;
 
-            // skip localhost interface
-            if(!strcmp(ip, "127.0.0.1")) { // bug dalsi adresy
+        family = ifa->ifa_addr->sa_family;
+
+        if (family == AF_INET) {
+            s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, 16, NULL, 0, NI_NUMERICHOST);
+            m = getnameinfo(ifa->ifa_netmask, sizeof(struct sockaddr_in), mask, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+            if (s != 0) {
+                fprintf(stderr,"Getnameinfo() failed: %s.s\n", gai_strerror(s));
+                exit(1);
+            }
+
+            if(!strcmp(host, "127.0.0.1")) { // localhosst skip. BUG: dalsi adresy
                 continue;
             }
 
@@ -181,56 +187,55 @@ struct single_interface *getInterface(int *interfaces_count) { // https://stacko
             memset(interfaces[*interfaces_count].name,'\0',20);
             memset(interfaces[*interfaces_count].ip,'\0',16);
             strcpy(interfaces[*interfaces_count].mask,mask);
-            strcpy(interfaces[*interfaces_count].ip,ip);
+            strcpy(interfaces[*interfaces_count].ip,host);
             strcpy(interfaces[*interfaces_count].name,ifa->ifa_name);
             interfaces[*interfaces_count].usable = false;
             (*interfaces_count)++;
         }
     }
-    freeifaddrs(ifap);
+
+    freeifaddrs(ifaddr);
     return interfaces;
 }
 
 // vygeneruj decoy pro jedno konkretni rozhrani
 // pocet dalsich pripadnych pouzitych rozhrani osetri post. nahrazovanim v **addresses z funkce main()
-void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
-    
+void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
+
     struct in_addr ipaddress, subnetmask;
-    // konverze adresy rozhrani
+
     inet_pton(AF_INET, interface.ip, &ipaddress);
     inet_pton(AF_INET, interface.mask, &subnetmask);
-    // prvni, posledni adresa site a adresa rozhrani v ciselnem formatu
+
     unsigned long interface_ip = ntohl(ipaddress.s_addr);
     unsigned long first_ip = ntohl(ipaddress.s_addr & subnetmask.s_addr);
     unsigned long last_ip = ntohl(ipaddress.s_addr | ~(subnetmask.s_addr));
-    unsigned int network_byte_order; // konkretni ciselna decoy adresa
-    char decoy[15]; // decoy adresa
 
+    printf("interface ip: %s\n",interface.ip);
+    printf("mask: %s\n",interface.mask);
+
+    char decoy[16]; // decoy adresa
     int add_decoy = 0; // lokalni iterator poctu pridavanych decoys z jednoho rozhrani
 
     // pro kazdou subadresu v siti spust decoy ping test
     for (unsigned long ip = first_ip; ip <= last_ip; ++ip) {
+
+        unsigned long theip = htonl(ip);
+        // use theip as needed...
 
         if(add_decoy == (DECOYS / *passed_interfaces)) // uz dosahl plneho pole pro tuto n-tou iteraci
             break;
 
         if(ip == first_ip || ip == last_ip || ip == interface_ip) // sit ani broadcast nechces
             continue;
-        network_byte_order = htonl(ip);
-        inet_ntop(AF_INET, &network_byte_order, decoy, INET_ADDRSTRLEN);
 
+        inet_ntop(AF_INET, &theip, decoy, INET_ADDRSTRLEN);
+        printf("decoy: %s\n",decoy);
         bool decoy_ping_succ = false; // pokud je adresa pouzivana, vrati true
-
-        // vytvor filter pro libpcap
-        char phrase[100];
-        memset(phrase,'\0',100);
-        strcat(phrase, "dst ");
-        strcat(phrase, interface.ip);
-        strcat(phrase, " and src ");
-        strcat(phrase, decoy);
 
         // argumenty pro decoy ping
         struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
+        ping_arg->target_struct = malloc(sizeof(struct sockaddr_in *));
         if(ping_arg == NULL) {
             fprintf(stderr,"Chyba pri alokaci pameti.");
             exit(1);
@@ -240,18 +245,32 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
             fprintf(stderr,"Chyba pri alokaci pameti.");
             exit(1);
         }
+        if(ping_arg->target_struct == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.");
+            exit(1);
+        }
         memset(ping_arg->target,'\0',16);
         memset(ping_arg->ifc,'\0',20);
         memset(ping_arg->ip,'\0',16);
-        memset(ping_arg->filter,'\0',100);
         strcpy(ping_arg->target,decoy);
         strcpy(ping_arg->ip,interface.ip);
         strcpy(ping_arg->ifc,interface.name);
-        strcpy(ping_arg->filter,phrase);
         ping_arg->client = client;
         ping_arg->ok = &decoy_ping_succ;
 
+        // decoy target override
+        struct hostent *hname;
+        struct sockaddr_in decoy_target;
+        hname = gethostbyname(decoy);
+        memset(&decoy_target, '\0', sizeof(decoy_target));
+        decoy_target.sin_family = hname->h_addrtype;
+        decoy_target.sin_port = 0;
+        decoy_target.sin_addr.s_addr = *(long*)hname->h_addr_list[0];
+
+        ping_arg->target_struct = &decoy_target;
+
         ping(ping_arg);
+
         free(ping_arg);
 
         if(decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
@@ -287,8 +306,6 @@ void *interface_looper(void* arg) {
             exit(1);        
         }
         memset(port_sniff_arg->ifc,'\0',20);
-        memset(port_sniff_arg->filter,'\0',100);
-        strcpy(port_sniff_arg->filter,args.filter);
         strcpy(port_sniff_arg->ifc,args.ifc);
         port_sniff_arg->client = args.client;
 

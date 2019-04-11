@@ -9,6 +9,7 @@
 #include <netinet/tcp.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <netdb.h>
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -18,7 +19,6 @@
 #endif
 
 int main(int argc, char **argv) {
-
     srand(time(0)); // random
 
 	// promenne pro vlaidaci argumentu
@@ -112,9 +112,18 @@ int main(int argc, char **argv) {
         pt_arr = new_pt_arr;
     }
 
+    // zpracuj hosta => target
+    struct hostent *hname;
+	struct sockaddr_in target;
+	hname = gethostbyname(host);
+    memset(&target, '\0', sizeof(target));
+	target.sin_family = hname->h_addrtype;
+	target.sin_port = 0;
+	target.sin_addr.s_addr = *(long*)hname->h_addr_list[0];
+
     // zalozeni socketu
 
-    int client = socket(PF_INET, SOCK_RAW, IPPROTO_TCP); // jeden socket pro praci vice vlaken
+    int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
     if (client < 0) 
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
@@ -123,7 +132,6 @@ int main(int argc, char **argv) {
     struct single_interface *interfaces = getInterface(&interfaces_count);
 
     bool ping_succ = false; // jestli byl kazdy z pingu ok
-    int repeated_ping = 0; // opakovany ping v pripade selhani, tri pokusy
 
     struct single_address *addresses = malloc(sizeof(struct single_address)*DECOYS); // pole decoy ip adres
     if(addresses == NULL) {
@@ -138,50 +146,43 @@ int main(int argc, char **argv) {
 
         ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
 
-        // spust vlakno s pingem
-        while(repeated_ping < 2 && !ping_succ) {
-
-            // vyrob plibcap capture filter
-            char phrase[100];
-            memset(phrase,'\0',100);
-            strcat(phrase, "dst ");
-            strcat(phrase, interfaces[i].ip);
-            strcat(phrase, " and src ");
-            strcat(phrase, host);
-
-            // nastav argumenty na ping
-            struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
-            if(ping_arg == NULL) {
-                fprintf(stderr,"Chyba pri alokaci pameti.");
-                exit(1);
-            }
-            ping_arg->ok = malloc(sizeof(bool*));
-            memset(ping_arg->target,'\0',16);
-            memset(ping_arg->ifc,'\0',20);
-            memset(ping_arg->ip,'\0',16);
-            memset(ping_arg->filter,'\0',100);
-            strcpy(ping_arg->target,host);
-            strcpy(ping_arg->ip,interfaces[i].ip);
-            strcpy(ping_arg->ifc,interfaces[i].name);
-            strcpy(ping_arg->filter,phrase);
-            ping_arg->client = client;
-            ping_arg->ok = &ping_succ;
-
-            ping(ping_arg);
-            free(ping_arg);
-
-            if(ping_succ) { // ping prosel
-                passed_interfaces++; // pocet rozhrani co prosly
-                interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
-                generate_decoy_ips(interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host);
-                break; // uz dal nepinguj z tohohle rozhrani
-            }
-            else { // tri pokusy
-                repeated_ping++;
-                sleep(1); // pockej jednu sekundu na dalsi ping
-            }
+        // nastav argumenty na ping
+        struct ping_arguments *ping_arg = malloc(sizeof(struct ping_arguments));
+        ping_arg->target_struct = malloc(sizeof(struct sockaddr_in *));
+        
+        if(ping_arg == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.");
+            exit(1);
         }
+        if(ping_arg->target_struct == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.");
+            exit(1);
+        }
+        ping_arg->ok = malloc(sizeof(bool*));
+        memset(ping_arg->target,'\0',16);
+        memset(ping_arg->ifc,'\0',20);
+        memset(ping_arg->ip,'\0',16);
+        strcpy(ping_arg->target,host);
+        strcpy(ping_arg->ip,interfaces[i].ip);
+        strcpy(ping_arg->ifc,interfaces[i].name);
+        ping_arg->client = client;
+        ping_arg->ok = &ping_succ;
+        ping_arg->target_struct = &target;
+
+        // free(ping_arg);
+
+        if(ping(ping_arg)) { // ping prosel
+            passed_interfaces++; // pocet rozhrani co prosly
+            interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
+            printf("generuju decoys.\n");
+            generate_decoy_ips(interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host, &target);
+            break; // uz dal nepinguj z tohohle rozhrani
+        }  
     }
+
+
+    printf("VYTVORENO POLE DECOY ADRES.\n");
+    exit(1);
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
@@ -239,18 +240,9 @@ int main(int argc, char **argv) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-            // vyrob plibcap capture filter, ktery zachyti SYN / RST / ICMP special
-            char phrase[100];
-            memset(phrase,'\0',100);
-            strcat(phrase, "xxx ");
-            strcat(phrase, interfaces[i].ip);
-            strcat(phrase, " xxx ");
-            strcat(phrase, host);
 
             memset(interface_loop_arg->ifc,'\0',20);
             strcpy(interface_loop_arg->ifc,interfaces[i].name);
-            memset(interface_loop_arg->filter,'\0',100);
-            strcpy(interface_loop_arg->filter,phrase);
             memset(interface_loop_arg->target_address,'\0',16);
             strcpy(interface_loop_arg->target_address,host);
             interface_loop_arg->pt_arr_size = pt_arr_size;
