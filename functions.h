@@ -47,6 +47,7 @@ struct domain_arguments {
         int *pt_arr;
 };
 
+
 struct tcpheader {
     unsigned short int tcph_srcport;
     unsigned short int tcph_destport;

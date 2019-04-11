@@ -14,6 +14,7 @@
 #include <ifaddrs.h>
 #include <errno.h>
 #include <netdb.h>
+#include <signal.h>
 
 #define PCKT_LEN 8192
 
@@ -23,6 +24,12 @@
 #ifndef PING_H
 #include "ping.h"
 #endif
+
+pcap_t *sniff; // globalni sniffer na ping
+
+void alarm_handler(int sig) {
+    pcap_breakloop(sniff);
+}
 
 unsigned short checksum(void *b, int len) {
     unsigned short *buf = b;
@@ -44,8 +51,7 @@ void *ping_sniffer(void *arg) {
 
     struct ping_arguments args = *(struct ping_arguments*)arg;
 
-	pcap_t *sniff;
-    char *dev = args.ifc;			/* The device to sniff on */
+	char *dev = args.ifc;			/* The device to sniff on */
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
     bpf_u_int32 mask;		/* Our netmask */
     bpf_u_int32 net;		/* Our IP */
@@ -92,6 +98,9 @@ void *ping_sniffer(void *arg) {
 
     int retv;
 
+    alarm(2);
+    signal(SIGALRM, alarm_handler);
+
     retv = pcap_loop(sniff, -1, (pcap_handler)ping_success, (unsigned char*)ping_callback_arg);
     // sem nastav alarm na 2-3 s misto poctu odch paketu
 	if (retv == -2) {
@@ -104,7 +113,7 @@ void *ping_sniffer(void *arg) {
     }
 
     pcap_close(sniff);
-    free(arg);
+    //free(arg);
     return NULL;
 }
 
@@ -117,7 +126,7 @@ void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr 
     ip = (struct iphdr *)(packet + 14);
 
     if (ip->protocol == 1) {
-        printf("Nalezen icmp paket. analyzuju vnitrk..\n");
+        printf("Nalezen icmp paket. analyzuju vnitrek..\n");
         tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
 
         //unsigned short srcport = ntohs(tcp->tcph_srcport); PORTY SNAD ZATIM NEPOTREBUJU

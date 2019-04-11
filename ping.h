@@ -51,3 +51,4 @@ void *ping_decoy_sniffer(void *arg);
 void ping_decoy_success(bool *ok, const struct pcap_pkthdr *header, const unsigned char *packet);
 int ping(struct ping_arguments *ping_arg);
 unsigned short checksum(void *b, int len);
+void alarm_handler(int sig);
