@@ -22,7 +22,7 @@
 
 int main(int argc, char **argv) {
     srand(time(0)); // random
-
+    
 	// promenne pro vlaidaci argumentu
     char *pu = "";
     char *pt = "";
@@ -180,7 +180,6 @@ int main(int argc, char **argv) {
         if(ping(ping_arg)) { // ping prosel
             passed_interfaces++; // pocet rozhrani co prosly
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
-            printf("generuju decoys.\n");
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
             break; // uz dal nepinguj z tohohle rozhrani
         }  
@@ -218,7 +217,6 @@ int main(int argc, char **argv) {
     }
 
     // v pt_arr nebo pu_arr je ted pole portu
-    // zaloz a randomizuj frontu portu na ozkouseni
 
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
     // n pocet 3l3m3ntu, MAX 65535

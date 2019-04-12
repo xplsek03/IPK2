@@ -13,7 +13,7 @@
 #include <stdbool.h>
 #include <sys/time.h>
 
-#define DECOYS 5
+#define DECOYS 4
 #define PCKT_LEN 8192
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000

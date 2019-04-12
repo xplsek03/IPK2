@@ -112,41 +112,48 @@ int portCount(int type, struct port *arr) {
         return sizeof(arr)/sizeof(struct port);   
 }
 
-// to co cmucha na jednom konkretnim rozhrani
+// sniffer co zachycuje na konkretnim rozhrani pakety jdouci na jeho konkretni rozhrani
 void *interface_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
-    struct ping_arguments args = *(struct ping_arguments*)arg;
-	pcap_t *sniff;
-	char *dev = args.ifc;
-	char errbuf[PCAP_ERRBUF_SIZE];
-	bpf_u_int32	netp;
-	bpf_u_int32	maskp;
-	int dl = 0, dl_len = 0;
-	if ((sniff = pcap_open_live(dev, 1514, 1, 500, errbuf)) == NULL) {
-		fprintf(stderr, "cannot open device %s: %s\n", dev, errbuf);
+
+    struct port_sniffer_arguments args = *(struct port_sniffer_arguments *)arg;
+
+    char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
+    bpf_u_int32 mask;		/* Our netmask */
+    bpf_u_int32 net;		/* Our IP */
+    struct pcap_pkthdr header;	/* The header that pcap gives us */
+    const unsigned char *packet;		/* The actual packet */
+
+    if(pcap_lookupnet(args.ifc, &net, &mask, errbuf) == -1) {
+        fprintf(stderr, "Couldn't get netmask for device %s: %s\n", args.ifc, errbuf);
+        net = 0;
+        mask = 0;
+    }
+    pcap_t *ifc_sniff = pcap_open_live(args.ifc, BUFSIZ, 1, 1000, errbuf); // 1514, 4000
+    if(ifc_sniff == NULL) {
+        fprintf(stderr, "Couldn't open device %s: %s\n", args.ifc, errbuf);
+        free(arg);
+        exit(1);
+    }
+    
+    int retv;
+
+    //retv = pcap_loop(ifc_sniff, -1, (pcap_handler)interface_success, (unsigned char*)NULL);
+    // sem nastav alarm na 2-3 s misto poctu odch paketu
+	if (retv == -2) {
+        ;
+	}
+    else if(retv < 0) {
+    	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(ifc_sniff));
         free(arg);
 		exit(1);
-	}
-	pcap_lookupnet(dev, &netp, &maskp, errbuf);
+    }
 
-	dl = pcap_datalink(sniff);
-	switch(dl) {
-		case 1:
-			dl_len = 14;
-			break;
-		default:
-			dl_len = 14;
-			break;
-	}
-    // pracuj takhle: to co chytis ma prijit na nejakej port z argumentu, blabla.. 
-    // pokud dostanes rst, icmp, nic, tohle res v callback a podle toho nastavuj dalsi blbosti
-    // -1 loop: sniffing az do chyby
-	//if (pcap_loop(sniff, -1, raw_packet_receiver, NULL) < 0) {
-	//	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
-	//	exit(1);
-	//}
-    free(arg);
+    pcap_close(ifc_sniff);
+    //free(arg);
     return NULL;
 }
+
+/////////////////////////////
 
 // http://man7.org/linux/man-pages/man3/getifaddrs.3.html pro pokrocile moznosti a ipv6
 struct single_interface *getInterface(int *interfaces_count) {
@@ -179,7 +186,6 @@ struct single_interface *getInterface(int *interfaces_count) {
             //struct sockaddr_ll *hw = (struct sockaddr_ll*)ifa->ifa_addr;
             //for (int i=0; i < hw->sll_halen; i++)
             //   printf("%02x%c", (hw->sll_addr[i]), (i+1!=hw->sll_halen)?':':'\n');
-                
 
             s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, 16, NULL, 0, NI_NUMERICHOST);
             m = getnameinfo(ifa->ifa_netmask, sizeof(struct sockaddr_in), mask, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
@@ -200,6 +206,7 @@ struct single_interface *getInterface(int *interfaces_count) {
             strcpy(interfaces[*interfaces_count].ip,host);
             strcpy(interfaces[*interfaces_count].name,ifa->ifa_name);
             interfaces[*interfaces_count].usable = false;
+
             (*interfaces_count)++;
         }
     }
@@ -284,16 +291,16 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         }
         else { // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
             if(add_decoy < (DECOYS / *passed_interfaces)) {
-                memset(&addresses[add_decoy].ip,'\0',16);
+                memset(addresses[add_decoy].ip,'\0',16);
                 strcpy(addresses[add_decoy].ip,decoy);
-                memset(&addresses[add_decoy].ifc,'\0',20);
+                memset(addresses[add_decoy].ifc,'\0',20);
                 strcpy(addresses[add_decoy].ifc,interface.name);
                 add_decoy++; // lokalni iterator
-                *decoy_count++; // globalni iterator decoy adres
+                (*decoy_count)++; // globalni iterator decoy adres
             }
         }
 
-    } 
+    }
 }
 
 int rndm(int lower, int upper) { 
@@ -384,14 +391,22 @@ void *domain_loop(void *arg) {
     // rozbal argumenty
     struct domain_arguments args = *(struct domain_arguments*)arg;
 
-    int mutex = args.pt_arr_size; // mutex max pocet pruchodu
+    printf("Jsme v domene. Argumenty: \n");
+    printf("ip: %s\n",args.ip);
 
+    for(int i = 0; i < args.pt_arr_size; i++) {
+        printf("global: %s\n",args.global_queue->q[i].port);
+        printf("local: %s\n",args.local_list[i].port);
+    }
+
+
+    // spoofed port ze kteryho odesles SYN
     int spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
     // projed max pocet portu - mutex - zabrani aby jely vickrat
-    for(int i = 0; i < args.pt_arr_size; i++) { // BUG: pri udp pridat pu_arr_size
-        send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
-    }
+    //for(int i = 0; i < args.pt_arr_size; i++) { // BUG: pri udp pridat pu_arr_size
+    //    send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
+    //}
 }
 
 void randomize(struct port *array, int n) {
@@ -424,7 +439,6 @@ int checkArg(char *argument) {
             return 0;       
     } 
     if(range > 1 || !isdigit(argument[strlen(argument)-1]) || (range > 0 && col > 0)) {
-        printf("vratil nulu.\n");
         return 0;
     }
     
@@ -501,7 +515,7 @@ int processArgument(char *argument,int ret, struct port **xu_arr) { // BUG zkont
 
 // PORT QUEUE
 
-struct port queue_peek(struct port *q, int front) {
+struct port queue_peek(struct port *q, int front) { // nepouzivat
     return q[front];
 }
 
@@ -509,11 +523,11 @@ bool queue_isEmpty(int count) {
     return count == 0;
 }
 
-bool queue_isFull(int count, int max) {
+bool queue_isFull(int count, int max) { // prebytecne, k preplneni nedojde
     return count == max;
 }
 
-int queue_size(int count) {
+int queue_size(int count) { // dat mutex
     return count;
 }  
 
@@ -527,7 +541,7 @@ void queue_insert(struct port data, int rear, int max, struct port *q, int count
     }
 }
 
-struct port queue_removeData(struct port *q, int front, int max, int count) {
+struct port queue_removeData(struct port *q, int front, int max, int count) { // dat mutex
     struct port data = q[front++];
 	if(front == max) {
         front = 0;

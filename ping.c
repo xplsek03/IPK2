@@ -126,7 +126,6 @@ void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr 
     ip = (struct iphdr *)(packet + 14);
 
     if (ip->protocol == 1) {
-        printf("Nalezen icmp paket. analyzuju vnitrek..\n");
         tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
 
         //unsigned short srcport = ntohs(tcp->tcph_srcport); PORTY SNAD ZATIM NEPOTREBUJU
@@ -138,7 +137,6 @@ void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr 
         inet_ntop(AF_INET, &ip->daddr, dstname, INET_ADDRSTRLEN);
 
         if(!strcmp(dstname,arg->ip) && !strcmp(srcname,arg->target)) {
-            printf("NALEZEN REPLY PAKET.\n\n");
             pcap_breakloop(arg->sniff);
         }
     }
