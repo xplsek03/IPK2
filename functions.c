@@ -19,6 +19,7 @@
 #include <linux/if_link.h>
 //#include <net/if_dl.h>
 // https://stackoverflow.com/questions/1520649/what-package-do-i-need-to-install-for-using-routing-sockets
+#include <sys/time.h>
 
 #define PCKT_LEN 8192
 
@@ -100,18 +101,19 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
     }
 }
 
-int portCount(int type, int *arr) {
+int portCount(int type, struct port *arr) {
     // 0 = chyba
     // 1 = jedna pomlcka
     // 2 = nejake carky
     // 3 = jen cisla
     if(type == 1)
-        return arr[1] - arr[0]+1;
+        return arr[1].port - arr[0].port + 1;
     else 
-        return sizeof(arr)/sizeof(int);   
+        return sizeof(arr)/sizeof(struct port);   
 }
 
-void *port_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
+// to co cmucha na jednom konkretnim rozhrani
+void *interface_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
     struct ping_arguments args = *(struct ping_arguments*)arg;
 	pcap_t *sniff;
 	char *dev = args.ifc;
@@ -298,10 +300,14 @@ int rndm(int lower, int upper) {
     return (rand() % (upper - lower + 1)) + lower;
 }
 
+// to co ridi jedno cele rozhrani
 void *interface_looper(void* arg) {
 
     pthread_t port_sniff;
     struct interface_arguments args = *(struct interface_arguments*)arg;
+
+    // lokalni interface seznam portu ke zpracovani
+    struct port local_list[args.pt_arr_size];
 
     // vytvor argumenty port snifferu
     struct port_sniffer_arguments *port_sniff_arg = malloc(sizeof(struct port_sniffer_arguments));
@@ -314,7 +320,7 @@ void *interface_looper(void* arg) {
         port_sniff_arg->client = args.client;
 
     // vytvor port sniffer a nahraj do nej argumenty
-    if (pthread_create(&port_sniff, NULL, port_sniffer, (void *)port_sniff_arg)) {
+    if (pthread_create(&port_sniff, NULL, interface_sniffer, (void *)port_sniff_arg)) {
         fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
         exit(1);
     }
@@ -334,20 +340,27 @@ void *interface_looper(void* arg) {
     for(int i = 0; i < args.decoy_count; i++) {
         if(args.addresses[i].ifc == args.ifc) {
             struct domain_arguments *domain_arg = malloc(sizeof(struct domain_arguments));
-            domain_arg->pt_arr = malloc(sizeof(int*));
+            domain_arg->local_list = malloc(args.pt_arr_size * sizeof(struct port *));
+            if(domain_arg->local_list == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }            
+            domain_arg->global_queue = malloc(args.pt_arr_size * sizeof(struct port *));
             if(domain_arg == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-            if(domain_arg->pt_arr == NULL) {
+            if(domain_arg->global_queue == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
+
+            domain_arg->global_queue = args.global_queue;
+            domain_arg->local_list = local_list;
             domain_arg->client = args.client;
             memset(domain_arg->target_address,'\0',16);
             strcpy(domain_arg->target_address,args.target_address);
             domain_arg->pt_arr_size = args.pt_arr_size;
-            domain_arg->pt_arr = args.pt_arr;
             memset(domain_arg->ip,'\0',16);
             strcpy(domain_arg->ip,args.addresses[i].ip);
             
@@ -365,6 +378,7 @@ void *interface_looper(void* arg) {
     return NULL;
 } 
 
+// to co posila SYNy z konkretni domeny
 void *domain_loop(void *arg) {
 
     // rozbal argumenty
@@ -377,6 +391,18 @@ void *domain_loop(void *arg) {
     // projed max pocet portu - mutex - zabrani aby jely vickrat
     for(int i = 0; i < args.pt_arr_size; i++) { // BUG: pri udp pridat pu_arr_size
         send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
+    }
+}
+
+void randomize(struct port *array, int n) {
+    if (n > 1) {
+        size_t i;
+        for (i = 0; i < n - 1; i++) {
+            size_t j = i + rand() / (RAND_MAX / (n - i) + 1);
+            struct port t = array[j];
+            array[j] = array[i];
+            array[i] = t;
+        }
     }
 }
 
@@ -420,10 +446,10 @@ int getCharCount(char *str, char z) {
     return c;
 }
 
-int processArgument(char *argument,int ret, int **xu_arr) { // BUG zkontrolu jaby tam nebyly nahodou dva stejne porty
+int processArgument(char *argument,int ret, struct port **xu_arr) { // BUG zkontrolu jaby tam nebyly nahodou dva stejne porty
     int size;
     if(ret == 1) { // hledas -
-        *xu_arr = malloc(sizeof(int)*2);
+        *xu_arr = malloc(sizeof(struct port)*2);
         size = 2;
         if(*xu_arr == NULL)
             return 2; // malloc error
@@ -431,13 +457,16 @@ int processArgument(char *argument,int ret, int **xu_arr) { // BUG zkontrolu jab
         char *end;
         char *p = strtok(argument, "-");
         while (p != NULL) {
-            *xu_arr[i++] = (int)strtol(p, &end, 10);
+            xu_arr[i]->port = (int)strtol(p, &end, 10);
+            xu_arr[i]->count = 0;
+            xu_arr[i]->passed = false;
+            i++;
             p = strtok(NULL, "-");
         }
     }
     else if(ret == 2) { // hledas ,
         int l = getCharCount(argument,',');
-        *xu_arr = malloc(sizeof(int) * (l+1));
+        *xu_arr = malloc(sizeof(struct port) * (l+1));
         size = l+1;
         if(*xu_arr == NULL)
             return 2; // malloc error
@@ -445,22 +474,64 @@ int processArgument(char *argument,int ret, int **xu_arr) { // BUG zkontrolu jab
         char *end;
         char *p = strtok(argument, ",");
         while (p != NULL) {
-            *xu_arr[i++] = (int)strtol(p, &end, 10);
+            xu_arr[i]->port = (int)strtol(p, &end, 10);
+            xu_arr[i]->count = 0;
+            xu_arr[i]->passed = false;
+            i++;
             p = strtok(NULL, ",");
         }
     }
     else { // vkladas cely cislo do pole
-        *xu_arr = malloc(sizeof(int));
+        *xu_arr = malloc(sizeof(struct port));
         char *end;
         if(*xu_arr == NULL)
             return 2; // malloc error
-        *xu_arr[0] = (int)strtol(argument, &end, 10);
+        xu_arr[0]->port = (int)strtol(argument, &end, 10);
+        xu_arr[0]->count = 0;
+        xu_arr[0]->passed = false;
         size = 1;
     }
 
     for(int i = 0; i < size; i++) {
-        if(*xu_arr[i] > 65535 || *xu_arr[i] < 0)
+        if(xu_arr[i]->port > 65535 || xu_arr[i]->port < 0)
             return 1; // chyba rozsahu int
     }
     return 0;
+}
+
+// PORT QUEUE
+
+struct port queue_peek(struct port *q, int front) {
+    return q[front];
+}
+
+bool queue_isEmpty(int count) {
+    return count == 0;
+}
+
+bool queue_isFull(int count, int max) {
+    return count == max;
+}
+
+int queue_size(int count) {
+    return count;
+}  
+
+void queue_insert(struct port data, int rear, int max, struct port *q, int count) {
+    if(!queue_isFull(count, max)) {
+	    if(rear == max-1) {
+            rear = -1;            
+        }       
+        q[++rear] = data;
+        count++;
+    }
+}
+
+struct port queue_removeData(struct port *q, int front, int max, int count) {
+    struct port data = q[front++];
+	if(front == max) {
+        front = 0;
+    }
+	count--;
+    return data;  
 }

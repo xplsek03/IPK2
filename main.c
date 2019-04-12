@@ -11,6 +11,8 @@
 #include <ctype.h>
 #include <netdb.h>
 
+#define RAND_MAX 2147483647
+
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
@@ -30,8 +32,8 @@ int main(int argc, char **argv) {
     int hc = 0;
     
     // pole pro seznam 
-    int *pu_arr;
-    int *pt_arr;
+    struct port *pu_arr;
+    struct port *pt_arr;
     
     // kontrola poctu argumentu
     if(argc != 6) {
@@ -85,7 +87,8 @@ int main(int argc, char **argv) {
     }
 
     int ret_pu2 = processArgument(pu,ret_pu,&pu_arr);
-    int ret_pt2 = processArgument(pt,ret_pt,&pt_arr);   
+    int ret_pt2 = processArgument(pt,ret_pt,&pt_arr); 
+
     if(ret_pu2 == 2 || ret_pt2 == 2) {
         fprintf(stderr,"Chyba pri alokaci.\n");
         return 1;
@@ -101,13 +104,16 @@ int main(int argc, char **argv) {
 
     // pokud tam byla pomlcka, preved to na pole. BUG: dodelat i pro UDP, nejspis dat do funkce
     if(ret_pt == 1) {
-        int *new_pt_arr = malloc(sizeof(int) * pt_arr_size);
+        struct port *new_pt_arr = malloc(sizeof(struct port) * pt_arr_size);
         if(new_pt_arr == NULL) {
             fprintf(stderr,"Chyba pri alokaci.\n");
             return 1;
         }
-        for(int i = 0; i < pt_arr_size; i++)
-            new_pt_arr[i] = pt_arr[0] + i;
+        for(int i = 0; i < pt_arr_size; i++) {
+            new_pt_arr[i].port = pt_arr[0].port + i;
+            new_pt_arr[i].count = 0;
+            new_pt_arr[i].passed = false; 
+        }
         free(pt_arr);
         pt_arr = new_pt_arr;
     }
@@ -124,7 +130,7 @@ int main(int argc, char **argv) {
     // zalozeni socketu
 
     int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
-    if (client < 0) 
+    if (client < 0)  
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     // inicializace seznamu interfaces pro ping
@@ -211,6 +217,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // v pt_arr nebo pu_arr je ted pole portu
+    // zaloz a randomizuj frontu portu na ozkouseni
+
+    // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
+    // n pocet 3l3m3ntu, MAX 65535
+    // RANDMAX nastaveno na 2,147,483,647
+    // nastav novou globalni frontu plnou portu ke zpracovani
+    randomize(pt_arr, pt_arr_size);
+
+    struct queue *global_queue = malloc(pt_arr_size * sizeof(struct port));
+
+    global_queue->count = pt_arr_size;
+    global_queue->q = pt_arr;
+    global_queue->front = 0;
+    global_queue->rear = -1;
+
     ///////////////////////////////////////////////////////////
     // INTERFACES A PARALELNI ZPRACOVANI NA KAZDEM INTERFACE //
     ///////////////////////////////////////////////////////////
@@ -226,9 +248,14 @@ int main(int argc, char **argv) {
             // argumenty single_ifc->port snifferu + domain
             struct interface_arguments *interface_loop_arg = malloc(sizeof(struct interface_arguments));
             interface_loop_arg->addresses = malloc(DECOYS * sizeof(struct single_address *));
-            interface_loop_arg->pt_arr = malloc(sizeof(int*));
+            interface_loop_arg->global_queue = malloc(sizeof(struct queue));            
+            interface_loop_arg->global_queue->q = malloc(pt_arr_size * sizeof(struct port *));
 
             if(interface_loop_arg == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }
+            if(interface_loop_arg->global_queue == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
@@ -236,7 +263,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-            if(interface_loop_arg->pt_arr == NULL) {
+            if(interface_loop_arg->global_queue->q == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
@@ -249,7 +276,7 @@ int main(int argc, char **argv) {
             interface_loop_arg->addresses = addresses;
             interface_loop_arg->decoy_count = decoy_count;
             interface_loop_arg->client = client;
-            interface_loop_arg->pt_arr = pt_arr;
+            interface_loop_arg->global_queue = global_queue;
 
             if (pthread_create(&single_interface[c++], NULL, interface_looper, (void *)interface_loop_arg)) {
                 fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
