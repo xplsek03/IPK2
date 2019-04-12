@@ -75,7 +75,7 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
 int portCount(int type, int *arr);
 void *port_sniffer(void *arg);
 struct single_interface *getInterface(int *interfaces_count);
-void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct);
+void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct);
 void *interface_looper(void* arg);
 void *domain_loop(void *arg);
 int processArgument(char *argument,int ret, int **xu_arr);

@@ -175,14 +175,10 @@ int main(int argc, char **argv) {
             passed_interfaces++; // pocet rozhrani co prosly
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
             printf("generuju decoys.\n");
-            generate_decoy_ips(interfaces[i], &passed_interfaces, &addresses, &decoy_count, client, host, &target);
+            generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
             break; // uz dal nepinguj z tohohle rozhrani
         }  
     }
-
-
-    printf("VYTVORENO POLE DECOY ADRES.\n");
-    exit(1);
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
@@ -215,6 +211,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    ///////////////////////////////////////////////////////////
+    // INTERFACES A PARALELNI ZPRACOVANI NA KAZDEM INTERFACE //
+    ///////////////////////////////////////////////////////////
+
     // vytvoreni vlaken interface. struktura: single_ifc-> 1 sniffer + x domen
     pthread_t single_interface[passed_interfaces]; // vytvor pro kazde interface jedno vlakno
     void *retval[passed_interfaces];
@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
 
             // argumenty single_ifc->port snifferu + domain
             struct interface_arguments *interface_loop_arg = malloc(sizeof(struct interface_arguments));
-            interface_loop_arg->addresses = malloc(sizeof(struct single_address*));
+            interface_loop_arg->addresses = malloc(DECOYS * sizeof(struct single_address *));
             interface_loop_arg->pt_arr = malloc(sizeof(int*));
 
             if(interface_loop_arg == NULL) {

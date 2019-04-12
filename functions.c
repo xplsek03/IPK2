@@ -17,6 +17,8 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <linux/if_link.h>
+//#include <net/if_dl.h>
+// https://stackoverflow.com/questions/1520649/what-package-do-i-need-to-install-for-using-routing-sockets
 
 #define PCKT_LEN 8192
 
@@ -171,6 +173,12 @@ struct single_interface *getInterface(int *interfaces_count) {
         family = ifa->ifa_addr->sa_family;
 
         if (family == AF_INET) {
+
+            //struct sockaddr_ll *hw = (struct sockaddr_ll*)ifa->ifa_addr;
+            //for (int i=0; i < hw->sll_halen; i++)
+            //   printf("%02x%c", (hw->sll_addr[i]), (i+1!=hw->sll_halen)?':':'\n');
+                
+
             s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, 16, NULL, 0, NI_NUMERICHOST);
             m = getnameinfo(ifa->ifa_netmask, sizeof(struct sockaddr_in), mask, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
             if (s != 0) {
@@ -200,7 +208,7 @@ struct single_interface *getInterface(int *interfaces_count) {
 
 // vygeneruj decoy pro jedno konkretni rozhrani
 // pocet dalsich pripadnych pouzitych rozhrani osetri post. nahrazovanim v **addresses z funkce main()
-void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address **addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
+void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct) { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
 
     struct in_addr ipaddress, subnetmask;
 
@@ -211,9 +219,6 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
     unsigned long first_ip = ntohl(ipaddress.s_addr & subnetmask.s_addr);
     unsigned long last_ip = ntohl(ipaddress.s_addr | ~(subnetmask.s_addr));
 
-    printf("interface ip: %s\n",interface.ip);
-    printf("mask: %s\n",interface.mask);
-
     char decoy[16]; // decoy adresa
     int add_decoy = 0; // lokalni iterator poctu pridavanych decoys z jednoho rozhrani
 
@@ -221,7 +226,6 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
     for (unsigned long ip = first_ip; ip <= last_ip; ++ip) {
 
         unsigned long theip = htonl(ip);
-        // use theip as needed...
 
         if(add_decoy == (DECOYS / *passed_interfaces)) // uz dosahl plneho pole pro tuto n-tou iteraci
             break;
@@ -230,7 +234,6 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
             continue;
 
         inet_ntop(AF_INET, &theip, decoy, INET_ADDRSTRLEN);
-        printf("decoy: %s\n",decoy);
         bool decoy_ping_succ = false; // pokud je adresa pouzivana, vrati true
 
         // argumenty pro decoy ping
@@ -240,6 +243,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
             fprintf(stderr,"Chyba pri alokaci pameti.");
             exit(1);
         }
+
         ping_arg->ok = malloc(sizeof(bool*));
         if(ping_arg->ok == NULL) {
             fprintf(stderr,"Chyba pri alokaci pameti.");
@@ -278,16 +282,16 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         }
         else { // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
             if(add_decoy < (DECOYS / *passed_interfaces)) {
-                memset(addresses[add_decoy]->ip,'\0',16);
-                strcpy(addresses[add_decoy]->ip,decoy);
-                memset(addresses[add_decoy]->ifc,'\0',20);
-                strcpy(addresses[add_decoy]->ifc,interface.name);
+                memset(&addresses[add_decoy].ip,'\0',16);
+                strcpy(addresses[add_decoy].ip,decoy);
+                memset(&addresses[add_decoy].ifc,'\0',20);
+                strcpy(addresses[add_decoy].ifc,interface.name);
                 add_decoy++; // lokalni iterator
                 *decoy_count++; // globalni iterator decoy adres
             }
         }
 
-    }  
+    } 
 }
 
 int rndm(int lower, int upper) { 
