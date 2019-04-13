@@ -40,11 +40,6 @@ struct ping_callback_arguments {
     pcap_t *sniff;
 };
 
-struct port_sniffer_arguments {
-    char ifc[20];
-    int client;
-};
-
 void *ping_sniffer(void *arg);
 void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 void *ping_decoy_sniffer(void *arg);

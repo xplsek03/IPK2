@@ -11,6 +11,10 @@
 #include <ctype.h>
 #include <netdb.h>
 
+pthread_mutex_t mutex_queue_remove = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
+
 #define RAND_MAX 2147483647
 
 #ifndef FUNCTIONS_H

@@ -25,12 +25,27 @@
 #include "ping.h"
 #endif
 
+/*********************************************************************************************
+ *     
+ * globalni dniffer na ping, je tu kvuli sigalarm zastaveni
+ *
+ *********************************************************************************************/
 pcap_t *sniff; // globalni sniffer na ping
 
+/*********************************************************************************************
+ *     
+ * alarm, v pripade necinnosti zastavi ping sniffer (hledani volnych domen)
+ *
+ *********************************************************************************************/
 void alarm_handler(int sig) {
     pcap_breakloop(sniff);
 }
 
+/*********************************************************************************************
+ *     
+ * checksum funkce 2
+ *
+ *********************************************************************************************/
 unsigned short checksum(void *b, int len) {
     unsigned short *buf = b;
 	unsigned int sum=0;
@@ -45,8 +60,11 @@ unsigned short checksum(void *b, int len) {
 	return result;
 }
 
-// NORMALNI PING
-
+/*********************************************************************************************
+ *     
+ * sniffer na ping
+ *
+ *********************************************************************************************/
 void *ping_sniffer(void *arg) {
 
     struct ping_arguments args = *(struct ping_arguments*)arg;
@@ -98,11 +116,12 @@ void *ping_sniffer(void *arg) {
 
     int retv;
 
+    // v pripade z eodpoved enchce prijit, skonci po 2s
     alarm(2);
     signal(SIGALRM, alarm_handler);
 
     retv = pcap_loop(sniff, -1, (pcap_handler)ping_success, (unsigned char*)ping_callback_arg);
-    // sem nastav alarm na 2-3 s misto poctu odch paketu
+    // z callbacku byl zavolan breakloop
 	if (retv == -2) {
         args.ok = (bool *)true;
 	}
@@ -117,6 +136,11 @@ void *ping_sniffer(void *arg) {
     return NULL;
 }
 
+/*********************************************************************************************
+ *     
+ * callback ping snifferu
+ *
+ *********************************************************************************************/
 void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
 
     arg = (struct ping_callback_arguments *)arg;
@@ -136,6 +160,7 @@ void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr 
         char dstname[16];
         inet_ntop(AF_INET, &ip->daddr, dstname, INET_ADDRSTRLEN);
 
+        // nasels ping reply, skonci
         if(!strcmp(dstname,arg->ip) && !strcmp(srcname,arg->target)) {
             pcap_breakloop(arg->sniff);
         }
@@ -145,7 +170,12 @@ void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr 
     // ve sberu IP adres z adresy a masky tohohle interface
 }
 
-// https://www.cs.utah.edu/~swalton/listings/sockets/programs/part4/chap18/myping.c
+/*********************************************************************************************
+ *     
+ * rizeni jednoho pingu
+ * https://www.cs.utah.edu/~swalton/listings/sockets/programs/part4/chap18/myping.c
+ *
+ *********************************************************************************************/
 int ping(struct ping_arguments *ping_arg) {
 
     pthread_t ping_sniffer_thread; // id podrizeneho snifferu

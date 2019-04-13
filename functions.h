@@ -56,6 +56,19 @@ struct interface_arguments {
     char target_address[16];
     int pt_arr_size;
     struct queue *global_queue;
+    //bool *local_list_empty;
+};
+
+struct interface_sniffer_arguments {
+    char ifc[20];
+    int client;
+    bool *end_of_evangelion;
+};
+
+struct interface_handler_arguments {
+    struct queue *global_queue;
+    struct port *local_list;
+    bool *local_list_empty;
 };
 
 struct single_interface {
@@ -63,6 +76,15 @@ struct single_interface {
     char ip[16];
     char mask[16];
     bool usable;
+};
+
+struct interface_callback_arguments {
+    char ip[16];
+    char target[16];
+    int client;
+    bool *end_of_evangelion;
+    char ifc[20];
+    pcap_t *sniff;
 };
 
 struct domain_arguments {
@@ -73,6 +95,9 @@ struct domain_arguments {
         int *pt_arr;
         struct queue *global_queue;
         struct port *local_list;
+        pthread_mutex_t *mutex_queue_insert;
+        pthread_mutex_t *mutex_queue_remove;
+        pthread_mutex_t *mutex_queue_size;
 };
 
 
@@ -100,7 +125,6 @@ struct tcpheader {
 
 int rndm(int lower, int upper);
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
-int portCount(int type, struct port *arr);
 void *interface_sniffer(void *arg);
 struct single_interface *getInterface(int *interfaces_count);
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct);
