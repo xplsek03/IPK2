@@ -86,21 +86,76 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    int ret_pu2 = processArgument(pu,ret_pu,&pu_arr);
-    int ret_pt2 = processArgument(pt,ret_pt,&pt_arr); 
+    // nahradni za process argument - pt only BUG: do funkce i pro pu //
 
-    if(ret_pu2 == 2 || ret_pt2 == 2) {
-        fprintf(stderr,"Chyba pri alokaci.\n");
-        return 1;
+    // celkovy pocet portu
+    int pu_arr_size = 0;
+    int pt_arr_size = 0;
+
+    // pocet clenu portu
+    int size = 0;
+
+    if(ret_pt == 1) { // hledas -
+        pt_arr = malloc(sizeof(struct port)*2);
+        size = 2;
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            return 1;
+        }
+        int i = 0;
+        char *end;
+        char *p = strtok(pt, "-");
+        while (p) {
+            pt_arr[i].port = (int)strtol(p, &end, 10);
+            pt_arr[i].count = 0;
+            pt_arr[i].passed = false;
+            p = strtok(NULL, "-");
+            i++;
+        }
+
+        pt_arr_size = pt_arr[1].port - pt_arr[0].port +1;
+    }
+    else if(ret_pt == 2) { // hledas ,
+        int l = getCharCount(pt,',');
+        pt_arr = malloc(sizeof(struct port) * (l+1));
+        size = l+1;
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            return 1;
+        }
+        int i = 0;
+        char *end;
+        char *p = strtok(pt, ",");
+        while (p) {
+            pt_arr[i].port = (int)strtol(p, &end, 10);
+            pt_arr[i].count = 0;
+            pt_arr[i].passed = false;
+            p = strtok(NULL, ",");
+            i++;
+        }
+        pt_arr_size = size;
+    }
+    else { // vkladas cely cislo do pole
+        pt_arr = malloc(sizeof(struct port));
+        char *end;
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            return 1;
+        }
+        pt_arr[0].port = (int)strtol(pt, &end, 10);
+        pt_arr[0].count = 0;
+        pt_arr[0].passed = false;
+        size = 1;
+        pt_arr_size = 1;
     }
 
-    if(ret_pu2 == 1 || ret_pt2 == 1) {
-        fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
-        return 1;
+    for(int i = 0; i < size; i++) {
+        if(pt_arr[i].port > 65535 || pt_arr[i].port < 0) {
+            fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
+            return 1;
+        }
     }
-
-	int pu_arr_size = portCount(ret_pu, pu_arr);
-	int pt_arr_size = portCount(ret_pt, pt_arr);
+    // process argument end //
 
     // pokud tam byla pomlcka, preved to na pole. BUG: dodelat i pro UDP, nejspis dat do funkce
     if(ret_pt == 1) {
@@ -175,25 +230,24 @@ int main(int argc, char **argv) {
         ping_arg->ok = &ping_succ;
         ping_arg->target_struct = &target;
 
-        // free(ping_arg);
-
         if(ping(ping_arg)) { // ping prosel
             passed_interfaces++; // pocet rozhrani co prosly
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
             break; // uz dal nepinguj z tohohle rozhrani
         }  
+        // free(ping_arg);
     }
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
-        char arp_item[50];
-        memset(arp_item,'\0',50);
-        for(int i = 0; i < decoy_count; i) {
-            strcat(arp_item, "sudo arp -s ");
-            strcat(arp_item, addresses[i].ip);
-            strcat(arp_item, " -D ");
-            strcat(arp_item, addresses[i].ifc);
+        char arp_item[150];
+        char mac[18];
+        memset(mac,'\0',18);
+        memset(arp_item,'\0',150);
+        for(int i = 0; i < decoy_count; i++) {
+            get_mac(mac, addresses[i].ifc);
+            snprintf(arp_item,149,"sudo arp -s %s %s",addresses[i].ip, mac);
             system(arp_item);
         }
 
@@ -215,8 +269,6 @@ int main(int argc, char **argv) {
         fprintf(stderr,"Host neexistuje nebo je nedostupny.\n");
         return 1;
     }
-
-    // v pt_arr nebo pu_arr je ted pole portu
 
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
     // n pocet 3l3m3ntu, MAX 65535
