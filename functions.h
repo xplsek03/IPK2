@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <stdbool.h>
 #include <sys/time.h>
+#include <pcap.h>
 
 #define DECOYS 4
 #define PCKT_LEN 8192
@@ -38,7 +39,7 @@ struct port queue_removeData(struct port *q, int front, int max, int count);
 // port je urcenej poradim v listu, tzn list[i], kde i: 1 - 65535
 struct port {   
     int count; // kolikrat uz prosel zkousenim
-    time_t time; // jak je stary
+    struct timeval time; // jak je stary
     bool passed; // pustit ho pryc, protoze repsondoval syn ack?
     int port; // port je tu kvuli uvodni fronte
 };
@@ -56,7 +57,6 @@ struct interface_arguments {
     char target_address[16];
     int pt_arr_size;
     struct queue *global_queue;
-    //bool *local_list_empty;
 };
 
 struct interface_sniffer_arguments {
@@ -68,7 +68,9 @@ struct interface_sniffer_arguments {
 struct interface_handler_arguments {
     struct queue *global_queue;
     struct port *local_list;
-    bool *local_list_empty;
+    bool *interface_killer;
+    int *local_list_counter;
+    int pt_arr_size;
 };
 
 struct single_interface {
@@ -95,6 +97,7 @@ struct domain_arguments {
         int *pt_arr;
         struct queue *global_queue;
         struct port *local_list;
+        int *local_list_counter;
         pthread_mutex_t *mutex_queue_insert;
         pthread_mutex_t *mutex_queue_remove;
         pthread_mutex_t *mutex_queue_size;
@@ -129,7 +132,9 @@ void *interface_sniffer(void *arg);
 struct single_interface *getInterface(int *interfaces_count);
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct);
 void *interface_looper(void* arg);
+void *interface_handler(void* arg);
 void *domain_loop(void *arg);
+void interface_success(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 int processArgument(char *argument,int ret, struct port *xu_arr);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);

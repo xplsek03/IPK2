@@ -17,13 +17,12 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <linux/if_link.h>
-//#include <net/if_dl.h>
-// https://stackoverflow.com/questions/1520649/what-package-do-i-need-to-install-for-using-routing-sockets
 #include <sys/time.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#define PCKT_LEN 8192
+#define PCKT_LEN 8192 // velikost paketu
+#define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -32,6 +31,7 @@
 #include "ping.h"
 #endif
 
+// mutexy pro globalni frontu portu
 extern pthread_mutex_t mutex_queue_size;
 extern pthread_mutex_t mutex_queue_remove;
 extern pthread_mutex_t mutex_queue_insert;
@@ -402,16 +402,16 @@ void *interface_looper(void* arg) {
     pthread_t ifc_handler;
     struct interface_arguments args = *(struct interface_arguments*)arg;
 
-    // dodelej funkce lokalniho seznamu, dej tam mutexy, a dojed interface handler
-
     // lokalni seznam portu ke zpracovani na tomhle interface
     struct port local_list[args.pt_arr_size];
+    for(int i = 0; i < args.pt_arr_size; i++) {
+        local_list[i].port = 0;
+    }
     int local_list_counter = 0; // pocet polozek v lokalnim listu
     // zda je lokalni list prazdny - zapne to handler, zacne konec interface
-    bool local_list_empty = false;
+    bool interface_killer = false;
     // zapne to interface, zacne konec snifferu
     bool komm_susser_todd = false;
-
 
     // vytvor argumenty interface snifferu
     struct interface_sniffer_arguments *interface_sniff_arg = malloc(sizeof(struct interface_sniffer_arguments));
@@ -435,15 +435,19 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    interface_sniff_arg->end_of_evangelion = malloc(sizeof(bool *));
-    if(interface_sniff_arg->end_of_evangelion == NULL) {
+    interface_handler_arg->interface_killer = malloc(sizeof(bool *));
+    if(interface_handler_arg->interface_killer == NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    memset(interface_sniff_arg->ifc,'\0',20);
-    strcpy(interface_sniff_arg->ifc,args.ifc);
-    interface_sniff_arg->client = args.client;
-    interface_sniff_arg->end_of_evangelion = &komm_susser_todd;
+    interface_handler_arg->local_list_counter = malloc(sizeof(int *));
+    if(interface_handler_arg->local_list_counter == NULL) {
+        fprintf(stderr,"Chyba pri alokaci pameti.\n");
+        exit(1);        
+    }
+    interface_handler_arg->interface_killer = &interface_killer;
+    interface_handler_arg->local_list_counter = &local_list_counter;
+    interface_handler_arg->pt_arr_size = args.pt_arr_size;
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&ifc_sniff, NULL, interface_sniffer, (void *)interface_sniff_arg)) {
@@ -480,6 +484,7 @@ void *interface_looper(void* arg) {
             }            
             domain_arg->global_queue = malloc(sizeof(struct queue *));
             domain_arg->global_queue->q = malloc(args.pt_arr_size * sizeof(struct port *));
+            domain_arg->local_list_counter = malloc(sizeof(int *));
             if(domain_arg == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
@@ -492,7 +497,12 @@ void *interface_looper(void* arg) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
+            if(domain_arg->local_list_counter == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }
 
+            domain_arg->local_list_counter = &local_list_counter;
             domain_arg->global_queue = args.global_queue;
             domain_arg->global_queue->q = args.global_queue->q;
             domain_arg->local_list = local_list;
@@ -512,7 +522,7 @@ void *interface_looper(void* arg) {
     // muzeme jen doufat ze se nevypnou uplne vsechny zaraz i kdyz nekde neco bude
     while(true) {
         sleep(5);
-        if(local_list_empty && queue_isEmpty(args.global_queue->count))
+        if(interface_killer && queue_isEmpty(args.global_queue->count))
             break;
     }
     komm_susser_todd = true; // ukonci sniffer
@@ -539,17 +549,45 @@ void *interface_handler(void *arg) {
 
     // 1. varovani, pockej dalsich pet sekund..
     bool semi_empty = false;
-    // zahaj ukonceni handleru - vnejsi uzaviraci podminka
-    bool empty = false;
     // casova znamka jednoho prubehu handleru
-    time_t timestamp;
+    struct timeval timestamp;
 
-    while(args.local_list_empty) {
-        sleep(5);
-        if()
-
+    // dokud v lokalnim listu neco je
+    while(true) {
+        sleep(SLEEP_TIME);
+        if(semi_empty) {
+            if(!args.local_list_counter)
+                break;
+            else
+                semi_empty = false;
+        }
+        if(!args.local_list_counter) {
+            semi_empty = true;
+            continue;
+        }
+        // tady zacina standartni prochazeni seznamu
+        gettimeofday(&timestamp,NULL);
+        for(int i = 0; i < args.pt_arr_size; i++) {
+            if(!args.local_list[i].port && ((timestamp.tv_sec - args.local_list[i].time.tv_sec) >= SLEEP_TIME)) {
+                if(args.local_list[i].passed) { // aktivni port
+                    printf("TCP PORT %i OPEN\n",args.local_list[i].port);
+                    args.local_list[i].port = 0;
+                }
+                else { // neaktivni port
+                    if(args.local_list[i].count < 2) { // posli ho zpet do fronty
+                        args.local_list[i].count = args.local_list[i].count + 1;
+                        args.local_list[i].port = 0;
+                        queue_insert(args.local_list[i], args.global_queue->rear, args.pt_arr_size, args.global_queue->q, args.global_queue->count);
+                    }
+                    else { // port zahod a oznac jako offline
+                    printf("TCP PORT %i CLOSED | FILTERED\n",args.local_list[i].port);
+                    args.local_list[i].port = 0;                        
+                    }
+                }
+            }
+        }
     }
-    args.local_list_empty = true; // timhle rikas interface aby vypnulo sniffer
+    args.interface_killer = (bool *)true; // timhle rikas interface aby vypnulo sniffer
 
     return NULL;    
 }
@@ -582,8 +620,10 @@ void *domain_loop(void *arg) {
         args.local_list[worked_port.port-1].port = worked_port.port;
         args.local_list[worked_port.port-1].passed = worked_port.passed;
         gettimeofday(&timestamp,NULL);
-        args.local_list[worked_port.port-1].time = timestamp.tv_sec;
+        args.local_list[worked_port.port-1].time.tv_sec = timestamp.tv_sec;
         }
+        // zvys citatc lokalniho seznamu
+        args.local_list_counter = args.local_list_counter + 1;
 }
 
 /*********************************************************************************************
