@@ -42,12 +42,15 @@ struct port {
     struct timeval time; // jak je stary
     bool passed; // pustit ho pryc, protoze repsondoval syn ack?
     int port; // port je tu kvuli uvodni fronte
+    int rst; // kolikrat dosel signal reset? Je skutecne uzavreny?
 };
 
 struct single_address {
     char ifc[20];
     char ip[16];
 };
+
+typedef char local_address[16];
 
 struct interface_arguments {
     char ifc[20];
@@ -61,8 +64,10 @@ struct interface_arguments {
 
 struct interface_sniffer_arguments {
     char ifc[20];
-    int client;
+    char target[16];
     bool *end_of_evangelion;
+    local_address local_addresses[DECOYS];
+    int local_address_counter;
 };
 
 struct interface_handler_arguments {
@@ -81,12 +86,11 @@ struct single_interface {
 };
 
 struct interface_callback_arguments {
-    char ip[16];
     char target[16];
-    int client;
     bool *end_of_evangelion;
-    char ifc[20];
     pcap_t *sniff;
+    local_address local_addresses[DECOYS];
+    int local_address_counter;
 };
 
 struct domain_arguments {
@@ -134,7 +138,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
 void *interface_looper(void* arg);
 void *interface_handler(void* arg);
 void *domain_loop(void *arg);
-void interface_success(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
+void interface_callback(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 int processArgument(char *argument,int ret, struct port *xu_arr);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);

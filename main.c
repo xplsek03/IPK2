@@ -134,6 +134,7 @@ int main(int argc, char **argv) {
             pt_arr[i].port = (int)strtol(p, &end, 10);
             pt_arr[i].count = 0;
             pt_arr[i].passed = false;
+            pt_arr[i].rst = 0;
             p = strtok(NULL, ",");
             i++;
         }
@@ -186,8 +187,7 @@ int main(int argc, char **argv) {
 	target.sin_port = 0;
 	target.sin_addr.s_addr = *(long*)hname->h_addr_list[0];
 
-    // zalozeni socketu
-
+    // zalozeni TCP socketu
     int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
     if (client < 0)  
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 

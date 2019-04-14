@@ -21,7 +21,6 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#define PCKT_LEN 8192 // velikost paketu
 #define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
 #ifndef FUNCTIONS_H
@@ -78,7 +77,7 @@ void *get_mac(char *mac, char *dev) {
 
 /*********************************************************************************************
  *     
- *   odeslani syn paketu z jedne domeny rozhrani
+ *   odeslani syn paketu z jedne domeny konkretniho interface
  *
  *********************************************************************************************/
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
@@ -147,7 +146,7 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
  *   sniffer co zachycuje na konkretnim rozhrani pakety jdouci na jeho konkretni rozhrani
  *
  *********************************************************************************************/
-void *interface_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / nejake ICMP
+void *interface_sniffer(void *arg) {
 
     struct interface_sniffer_arguments args = *(struct interface_sniffer_arguments *)arg;
 
@@ -167,15 +166,38 @@ void *interface_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / ne
         fprintf(stderr, "Couldn't open device %s: %s\n", args.ifc, errbuf);
         free(arg);
         exit(1);
-    }
-    
+    }   
     int retv;
 
-    retv = pcap_loop(ifc_sniff, -1, (pcap_handler)interface_success, (unsigned char*)NULL);
-    if (retv == -2) {
-        ;
+    // argumenty pro interface callback
+
+    struct interface_callback_arguments *interface_callback_arg = malloc(sizeof(struct interface_callback_arguments));
+    if(interface_callback_arg == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
     }
-    else if(retv < 0) {
+    interface_callback_arg->end_of_evangelion = malloc(sizeof(bool*));
+    if(interface_callback_arg->end_of_evangelion == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
+    }    
+    interface_callback_arg->sniff = malloc(sizeof(pcap_t *));
+    if(interface_callback_arg->sniff == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    memset(interface_callback_arg->target,'\0',16);
+    strcpy(interface_callback_arg->target,args.target);
+    interface_callback_arg->end_of_evangelion = args.end_of_evangelion;
+    interface_callback_arg->sniff = ifc_sniff;
+    
+    for(int i = 0; i < args.local_address_counter; i++) {
+        memset(interface_callback_arg->local_addresses[i],'\0',16);
+        strcpy(interface_callback_arg->local_addresses[i],args.local_addresses[i]);
+    }
+
+    retv = pcap_loop(ifc_sniff, -1, (pcap_handler)interface_callback, (unsigned char*)interface_callback_arg);
+    if(retv < 0) {
         fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(ifc_sniff));
         free(arg);
         exit(1);
@@ -191,33 +213,42 @@ void *interface_sniffer(void *arg) { // tenhle sniffer zajima SYN ACK / RST / ne
  *   callback interface snifferu
  *
  *********************************************************************************************/
-void interface_success(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
+void interface_callback(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
 
     arg = (struct interface_callback_arguments *)arg;
 
     // jeste neni konec
     if(!arg->end_of_evangelion) {
-        /* NASTAV VNITREK ZKOUMANI TCP ODPOVEDI - NEBO RUZNYCH RST A ICMP ATD
-        // SET TRUE NA KONKRETNIM PORTU POKUD DOJDE JEHO CISLO A PORT NENI NULL
+
         struct iphdr *ip;
         struct tcpheader *tcp;
         ip = (struct iphdr *)(packet + 14);
 
-        if (ip->protocol == 6) {
-            tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
+        char srcname[16];
+        inet_ntop(AF_INET, &ip->saddr, srcname, INET_ADDRSTRLEN);
 
-            //unsigned short srcport = ntohs(tcp->tcph_srcport); PORTY SNAD ZATIM NEPOTREBUJU
-            //unsigned short dstport = ntohs(tcp->tcph_destport);
+        if(!strcmp(srcname, arg->target)) {
 
-            char srcname[16];
-            inet_ntop(AF_INET, &ip->saddr, srcname, INET_ADDRSTRLEN);
             char dstname[16];
             inet_ntop(AF_INET, &ip->daddr, dstname, INET_ADDRSTRLEN);
 
-            // nasels ping reply, skonci
-            if(!strcmp(dstname,arg->ip) && !strcmp(srcname,arg->target));
+            for(int i = 0; i < arg->local_address_counter; i++) {
+                if(!strcmp(dstname,arg->local_addresses[i])) { // jestli je cilova adresa v poli lokalnich adres
+
+                    // start analyzy obsahu paketu
+                    if (ip->protocol == 6) { // je to tcp, takze RST/SYN/SYN ACK
+                        tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
+
+                        //unsigned short srcport = ntohs(tcp->tcph_srcport);
+                        //unsigned short dstport = ntohs(tcp->tcph_destport);
+                    }
+                    else if(ip->protocol == 1) { // je to icmp, najdi typ
+
+                    }
+
+                }
+            }
         }
-        */
     }
     else
         pcap_breakloop(arg->sniff);
@@ -402,6 +433,17 @@ void *interface_looper(void* arg) {
     pthread_t ifc_handler;
     struct interface_arguments args = *(struct interface_arguments*)arg;
 
+    // vytvor tabulku s lokalnimi ip adresami tohoto rozhrani + jeji counter
+    local_address local_addresses[DECOYS];
+    int local_address_counter = 0;
+    for(int i = 0; i < DECOYS; i++) {
+        if(!strcmp(args.addresses[i].ifc,args.ifc)) {
+            memset(local_addresses[local_address_counter],'\0',16);
+            strcpy(local_addresses[local_address_counter],args.addresses[i].ip);
+            local_address_counter++;
+        }
+    }
+
     // lokalni seznam portu ke zpracovani na tomhle interface
     struct port local_list[args.pt_arr_size];
     for(int i = 0; i < args.pt_arr_size; i++) {
@@ -426,8 +468,14 @@ void *interface_looper(void* arg) {
     }
     memset(interface_sniff_arg->ifc,'\0',20);
     strcpy(interface_sniff_arg->ifc,args.ifc);
-    interface_sniff_arg->client = args.client;
+    memset(interface_sniff_arg->target,'\0',16);
+    strcpy(interface_sniff_arg->target,args.target_address);
     interface_sniff_arg->end_of_evangelion = &komm_susser_todd;
+    for(int i = 0; i < local_address_counter; i++) {
+        memset(interface_sniff_arg->local_addresses[i],'\0',16);
+        strcpy(interface_sniff_arg->local_addresses[i],local_addresses[i]);
+    }
+    interface_sniff_arg->local_address_counter = local_address_counter;
 
     // vytvor argumenty interface handleru
     struct interface_handler_arguments *interface_handler_arg = malloc(sizeof(struct interface_handler_arguments));
@@ -539,7 +587,7 @@ void *interface_looper(void* arg) {
 
 /*********************************************************************************************
  *     
- * interface handler!
+ * interface handler
  *
  *********************************************************************************************/
 void *interface_handler(void *arg) {
@@ -579,9 +627,15 @@ void *interface_handler(void *arg) {
                         args.local_list[i].port = 0;
                         queue_insert(args.local_list[i], args.global_queue->rear, args.pt_arr_size, args.global_queue->q, args.global_queue->count);
                     }
-                    else { // port zahod a oznac jako offline
-                    printf("TCP PORT %i CLOSED | FILTERED\n",args.local_list[i].port);
-                    args.local_list[i].port = 0;                        
+                    else {
+                        if(args.local_list[i].rst == 2) { // pokazde se vratil RST, opravdu zavreny
+                            printf("TCP PORT %i CLOSED\n",args.local_list[i].port);
+                            args.local_list[i].port = 0;  
+                        }  
+                        else { // pri nejakem pokusu napriklad nevratil nic
+                             printf("TCP PORT %i FILTERED\n",args.local_list[i].port);
+                            args.local_list[i].port = 0;                             
+                        }                    
                     }
                 }
             }
@@ -612,8 +666,7 @@ void *domain_loop(void *arg) {
         // z fronty vezmi port
         struct port worked_port = queue_removeData(args.global_queue->q, args.global_queue->front, args.pt_arr_size, args.global_queue->count);
 
-        // TED odesli syn
-        // send_syn(spoofed_port, args.pt_arr[i], args.ip, args.target_address, args.client);
+        send_syn(spoofed_port, worked_port.port, args.ip, args.target_address, args.client);
 
         // zpracovany port dej do local listu
         args.local_list[worked_port.port-1].count = worked_port.count;

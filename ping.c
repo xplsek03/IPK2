@@ -16,8 +16,6 @@
 #include <netdb.h>
 #include <signal.h>
 
-#define PCKT_LEN 8192
-
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
@@ -93,25 +91,16 @@ void *ping_sniffer(void *arg) {
     if(ping_callback_arg == NULL) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
         exit(1);
-    }
-    ping_callback_arg->ok = malloc(sizeof(bool*));
-    if(ping_callback_arg->ok == NULL) {
-        fprintf(stderr,"Chyba alokaci pameti.\n");
-        exit(1);
-    }    
+    }  
     ping_callback_arg->sniff = malloc(sizeof(pcap_t *));
     if(ping_callback_arg->sniff == NULL) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
         exit(1);
     }
     memset(ping_callback_arg->target,'\0',16);
-    memset(ping_callback_arg->ifc,'\0',20);
     memset(ping_callback_arg->ip,'\0',16);
     strcpy(ping_callback_arg->target,args.target);
     strcpy(ping_callback_arg->ip,args.ip);
-    strcpy(ping_callback_arg->ifc,args.ifc);
-    ping_callback_arg->client = args.client;
-    ping_callback_arg->ok = args.ok;
     ping_callback_arg->sniff = sniff;
 
     int retv;
@@ -120,7 +109,7 @@ void *ping_sniffer(void *arg) {
     alarm(2);
     signal(SIGALRM, alarm_handler);
 
-    retv = pcap_loop(sniff, -1, (pcap_handler)ping_success, (unsigned char*)ping_callback_arg);
+    retv = pcap_loop(sniff, -1, (pcap_handler)ping_callback, (unsigned char*)ping_callback_arg);
     // z callbacku byl zavolan breakloop
 	if (retv == -2) {
         args.ok = (bool *)true;
@@ -141,7 +130,7 @@ void *ping_sniffer(void *arg) {
  * callback ping snifferu
  *
  *********************************************************************************************/
-void ping_success(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
+void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
 
     arg = (struct ping_callback_arguments *)arg;
 
