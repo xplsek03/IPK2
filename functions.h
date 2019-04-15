@@ -68,6 +68,8 @@ struct interface_sniffer_arguments {
     bool *end_of_evangelion;
     local_address local_addresses[DECOYS];
     int local_address_counter;
+    int pt_arr_size;
+    struct port *local_list;
 };
 
 struct interface_handler_arguments {
@@ -91,6 +93,7 @@ struct interface_callback_arguments {
     pcap_t *sniff;
     local_address local_addresses[DECOYS];
     int local_address_counter;
+    struct port *local_list;
 };
 
 struct domain_arguments {

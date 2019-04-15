@@ -90,17 +90,17 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
     // The size of the headers
     struct iphdr *ip = (struct iphdr *) buffer;
     struct tcpheader *tcp = (struct tcpheader *) (buffer + sizeof(struct iphdr));
-    struct sockaddr_in sin, din;
+    struct sockaddr_in din;
     int one = 1;
 
     // Address family
-    sin.sin_family = AF_INET;
+    //sin.sin_family = AF_INET;
     din.sin_family = AF_INET;
     // Source port, can be any, modify as needed
-    sin.sin_port = htons(spoofed_port);
+    //sin.sin_port = htons(spoofed_port);
     din.sin_port = htons(target_port);
     // Source IP, can be any, modify as needed
-    sin.sin_addr.s_addr = inet_addr(spoofed_address);
+    //sin.sin_addr.s_addr = inet_addr(spoofed_address);
     din.sin_addr.s_addr = inet_addr(target_address);
     // IP structure
     ip->ihl = 5; // 4 ?
@@ -135,7 +135,7 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
         exit(1);
     }
 
-    if(sendto(client, buffer, ip->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+    if(sendto(client, buffer, ip->tot_len, 0, (struct sockaddr *)&din, sizeof(din)) < 0) {
         fprintf(stderr,"Chyba pri odesilani dat pres socket.\n");
         exit(1);
     }
@@ -186,11 +186,17 @@ void *interface_sniffer(void *arg) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
         exit(1);
     }
+    interface_callback_arg->local_list = malloc(args.pt_arr_size * sizeof(struct port *));
+    if(interface_callback_arg->local_list == NULL) {
+        fprintf(stderr,"Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    interface_callback_arg->local_list = args.local_list;
     memset(interface_callback_arg->target,'\0',16);
     strcpy(interface_callback_arg->target,args.target);
     interface_callback_arg->end_of_evangelion = args.end_of_evangelion;
     interface_callback_arg->sniff = ifc_sniff;
-    
+
     for(int i = 0; i < args.local_address_counter; i++) {
         memset(interface_callback_arg->local_addresses[i],'\0',16);
         strcpy(interface_callback_arg->local_addresses[i],args.local_addresses[i]);
@@ -221,7 +227,6 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
     if(!arg->end_of_evangelion) {
 
         struct iphdr *ip;
-        struct tcpheader *tcp;
         ip = (struct iphdr *)(packet + 14);
 
         char srcname[16];
@@ -236,14 +241,19 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
                 if(!strcmp(dstname,arg->local_addresses[i])) { // jestli je cilova adresa v poli lokalnich adres
 
                     // start analyzy obsahu paketu
-                    if (ip->protocol == 6) { // je to tcp, takze RST/SYN/SYN ACK
+                    if (ip->protocol == 6) { // je to tcp, takze RST/SYN/SYNACK
+                        struct tcpheader *tcp;
                         tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
 
-                        //unsigned short srcport = ntohs(tcp->tcph_srcport);
-                        //unsigned short dstport = ntohs(tcp->tcph_destport);
-                    }
-                    else if(ip->protocol == 1) { // je to icmp, najdi typ
-
+                        if(tcp->tcph_syn) {// tcp->tcph_ack && tcp->tcph_syn
+                            unsigned short srcport = ntohs(tcp->tcph_srcport);
+                            if(!arg->local_list[srcport-1].port)
+                                arg->local_list[srcport-1].passed = true;
+                        }
+                        else if(tcp->tcph_rst) {
+                            unsigned short srcport = ntohs(tcp->tcph_srcport);
+                            arg->local_list[srcport-1].rst = arg->local_list[srcport-1].rst + 1;
+                        }
                     }
 
                 }
@@ -466,6 +476,12 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
+    interface_sniff_arg->local_list = malloc(args.pt_arr_size * sizeof(struct port *));
+    if(interface_sniff_arg->local_list == NULL) {
+        fprintf(stderr,"Chyba pri alokaci pameti.\n");
+        exit(1);        
+    }
+    interface_sniff_arg->local_list = local_list;
     memset(interface_sniff_arg->ifc,'\0',20);
     strcpy(interface_sniff_arg->ifc,args.ifc);
     memset(interface_sniff_arg->target,'\0',16);
@@ -476,6 +492,7 @@ void *interface_looper(void* arg) {
         strcpy(interface_sniff_arg->local_addresses[i],local_addresses[i]);
     }
     interface_sniff_arg->local_address_counter = local_address_counter;
+    interface_sniff_arg->pt_arr_size = args.pt_arr_size;
 
     // vytvor argumenty interface handleru
     struct interface_handler_arguments *interface_handler_arg = malloc(sizeof(struct interface_handler_arguments));
