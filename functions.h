@@ -142,7 +142,7 @@ void *interface_looper(void* arg);
 void *interface_handler(void* arg);
 void *domain_loop(void *arg);
 void interface_callback(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
-int processArgument(char *argument,int ret, struct port *xu_arr);
+void processArgument(int *ret_px, struct port *px_arr, int *px_arr_size, char *px);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);
 unsigned short csum(unsigned short *buf, int len);

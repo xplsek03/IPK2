@@ -82,7 +82,6 @@ void *ping_sniffer(void *arg) {
     sniff = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf); // 1514, 4000
     if(sniff == NULL) {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
-        free(arg);
         exit(1);
     }
 
@@ -116,12 +115,16 @@ void *ping_sniffer(void *arg) {
 	}
     else if(retv < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
-        free(arg);
+        free(ping_callback_arg->sniff);
+        free(ping_callback_arg);
 		exit(1);
     }
 
     pcap_close(sniff);
-    //free(arg);
+
+    free(ping_callback_arg->sniff);
+    free(ping_callback_arg);
+
     return NULL;
 }
 
@@ -140,10 +143,6 @@ void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr
 
     if (ip->protocol == 1) {
         tcp = (struct tcpheader *)(packet + 14 + ip->tot_len * 4);
-
-        //unsigned short srcport = ntohs(tcp->tcph_srcport); PORTY SNAD ZATIM NEPOTREBUJU
-        //unsigned short dstport = ntohs(tcp->tcph_destport);
-
         char srcname[16];
         inet_ntop(AF_INET, &ip->saddr, srcname, INET_ADDRSTRLEN);
         char dstname[16];

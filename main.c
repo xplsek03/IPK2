@@ -25,12 +25,12 @@ pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 int main(int argc, char **argv) {
-    srand(time(0)); // random
+    srand(time(0)); // zamichej cislama
     
-	// promenne pro vlaidaci argumentu
-    char *pu = "";
-    char *pt = "";
-    char *host = "";
+	// promenne pro validaci argumentu
+    char *pu;
+    char *pt;
+    char *host;
     int puc = 0;
     int ptc = 0;
     int hc = 0;
@@ -90,93 +90,12 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // nahradni za process argument - pt only BUG: do funkce i pro pu //
-
     // celkovy pocet portu
     int pu_arr_size = 0;
     int pt_arr_size = 0;
-
-    // pocet clenu portu
-    int size = 0;
-
-    if(ret_pt == 1) { // hledas -
-        pt_arr = malloc(sizeof(struct port)*2);
-        size = 2;
-        if(pt_arr == NULL) {
-            fprintf(stderr,"Chyba pri alokaci.\n");
-            return 1;
-        }
-        int i = 0;
-        char *end;
-        char *p = strtok(pt, "-");
-        while (p) {
-            pt_arr[i].port = (int)strtol(p, &end, 10);
-            pt_arr[i].count = 0;
-            pt_arr[i].passed = false;
-            p = strtok(NULL, "-");
-            i++;
-        }
-
-        pt_arr_size = pt_arr[1].port - pt_arr[0].port +1;
-    }
-    else if(ret_pt == 2) { // hledas ,
-        int l = getCharCount(pt,',');
-        pt_arr = malloc(sizeof(struct port) * (l+1));
-        size = l+1;
-        if(pt_arr == NULL) {
-            fprintf(stderr,"Chyba pri alokaci.\n");
-            return 1;
-        }
-        int i = 0;
-        char *end;
-        char *p = strtok(pt, ",");
-        while (p) {
-            pt_arr[i].port = (int)strtol(p, &end, 10);
-            pt_arr[i].count = 0;
-            pt_arr[i].passed = false;
-            pt_arr[i].rst = 0;
-            p = strtok(NULL, ",");
-            i++;
-        }
-        pt_arr_size = size;
-    }
-    else { // vkladas cely cislo do pole
-        pt_arr = malloc(sizeof(struct port));
-        char *end;
-        if(pt_arr == NULL) {
-            fprintf(stderr,"Chyba pri alokaci.\n");
-            return 1;
-        }
-        pt_arr[0].port = (int)strtol(pt, &end, 10);
-        pt_arr[0].count = 0;
-        pt_arr[0].passed = false;
-        size = 1;
-        pt_arr_size = 1;
-    }
-
-    for(int i = 0; i < size; i++) {
-        if(pt_arr[i].port > 65535 || pt_arr[i].port < 0) {
-            fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
-            return 1;
-        }
-    }
-    // process argument end //
-
-    // pokud tam byla pomlcka, preved to na pole. BUG: dodelat i pro UDP, nejspis dat do funkce
-    if(ret_pt == 1) {
-        struct port *new_pt_arr = malloc(sizeof(struct port) * pt_arr_size);
-        if(new_pt_arr == NULL) {
-            fprintf(stderr,"Chyba pri alokaci.\n");
-            return 1;
-        }
-        for(int i = 0; i < pt_arr_size; i++) {
-            new_pt_arr[i].port = pt_arr[0].port + i;
-            new_pt_arr[i].count = 0;
-            new_pt_arr[i].passed = false; 
-        }
-        free(pt_arr);
-        pt_arr = new_pt_arr;
-    }
+    // kontrola argumentu pu a pt
+    processArgument(&ret_pt, pt_arr, &pt_arr_size, pt);
+    processArgument(&ret_pu, pu_arr, &pu_arr_size, pu);
 
     // zpracuj hosta => target
     struct hostent *hname;
@@ -190,6 +109,11 @@ int main(int argc, char **argv) {
     // zalozeni TCP socketu
     int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
     if (client < 0)  
+        fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
+
+    // zalozeni UDP socketu
+    int client_udp = socket(AF_INET, SOCK_RAW, IPPROTO_UDP); // SOCKET POUZE NA UDP
+    if (client_udp < 0)  
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     // inicializace seznamu interfaces pro ping
@@ -240,7 +164,9 @@ int main(int argc, char **argv) {
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
             break; // uz dal nepinguj z tohohle rozhrani
         }  
-        // free(ping_arg);
+        free(ping_arg->target_struct);
+        free(ping_arg->ok);
+        free(ping_arg);
     }
 
     // zpracovani pole decoy adres
@@ -343,6 +269,17 @@ int main(int argc, char **argv) {
         pthread_join(single_interface[i], &retval[i]); // pockej az dojedou vsechna vlakna
     }
 
+    // vymaz po sobe arp zaznamy
+    if(passed_interfaces > 0) {
+        char arp_item_del[150];
+        memset(arp_item_del,'\0',150);
+        for(int i = 0; i < decoy_count; i++) {
+            snprintf(arp_item_del,149,"sudo arp -d %s",addresses[i].ip);
+            system(arp_item_del);
+        }
+    }
+
+    free(global_queue);
     free(interfaces);
     free(addresses);
     return 0;
