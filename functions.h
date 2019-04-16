@@ -14,7 +14,7 @@
 #include <sys/time.h>
 #include <pcap.h>
 
-#define DECOYS 4
+#define DECOYS 1
 #define PCKT_LEN 8192
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
@@ -28,15 +28,12 @@ struct queue {
 };
 
 // funkce globalni fronty
-struct port queue_peek(struct port *q, int front);
 bool queue_isEmpty(int count);
 bool queue_isFull(int count, int max);
 int queue_size(int count);
-void queue_insert(struct port data, int rear, int max, struct port *q, int count);
-struct port queue_removeData(struct port *q, int front, int max, int count);
+void queue_insert(struct port data, int *rear, int max, struct port *q, int *count);
+struct port queue_removeData(struct port *q, int *front, int max, int *count);
 
-// zaznam v port queue (a seznamu na kazdem interface)
-// port je urcenej poradim v listu, tzn list[i], kde i: 1 - 65535
 struct port {   
     int count; // kolikrat uz prosel zkousenim
     struct timeval time; // jak je stary
@@ -59,7 +56,7 @@ struct interface_arguments {
     int decoy_count;
     char target_address[16];
     int pt_arr_size;
-    struct queue *global_queue;
+    int min_port;
 };
 
 struct interface_sniffer_arguments {
@@ -69,12 +66,12 @@ struct interface_sniffer_arguments {
     local_address local_addresses[DECOYS];
     int local_address_counter;
     int pt_arr_size;
-    struct port *local_list;
+    struct port **local_list;
+    int min_port;
 };
 
 struct interface_handler_arguments {
-    struct queue *global_queue;
-    struct port *local_list;
+    struct port **local_list;
     bool *interface_killer;
     int *local_list_counter;
     int pt_arr_size;
@@ -93,7 +90,8 @@ struct interface_callback_arguments {
     pcap_t *sniff;
     local_address local_addresses[DECOYS];
     int local_address_counter;
-    struct port *local_list;
+    struct port **local_list;
+    int min_port;
 };
 
 struct domain_arguments {
@@ -101,13 +99,10 @@ struct domain_arguments {
         char target_address[16]; 
         char ip[16];
         int pt_arr_size;
-        int *pt_arr;
-        struct queue *global_queue;
-        struct port *local_list;
+        struct port **local_list;
         int *local_list_counter;
-        pthread_mutex_t *mutex_queue_insert;
-        pthread_mutex_t *mutex_queue_remove;
-        pthread_mutex_t *mutex_queue_size;
+        bool *end_of_evangelion;
+        int min_port;
 };
 
 
@@ -142,9 +137,10 @@ void *interface_looper(void* arg);
 void *interface_handler(void* arg);
 void *domain_loop(void *arg);
 void interface_callback(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
-void processArgument(int *ret_px, struct port *px_arr, int *px_arr_size, char *px);
+void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *px);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);
 unsigned short csum(unsigned short *buf, int len);
 void randomize(struct port *array, int n);
 void *get_mac(char *mac, char *dev);
+unsigned long rndmsleep(unsigned long lower, unsigned long upper);

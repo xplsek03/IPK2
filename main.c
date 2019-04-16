@@ -15,6 +15,8 @@ pthread_mutex_t mutex_queue_remove = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 
+struct queue *global_queue;
+
 #define RAND_MAX 2147483647
 
 #ifndef FUNCTIONS_H
@@ -26,7 +28,6 @@ pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char **argv) {
     srand(time(0)); // zamichej cislama
-    
 	// promenne pro validaci argumentu
     char *pu;
     char *pt;
@@ -36,7 +37,7 @@ int main(int argc, char **argv) {
     int hc = 0;
     
     // pole pro seznam 
-    struct port *pu_arr;
+    // struct port *pu_arr;
     struct port *pt_arr;
     
     // kontrola poctu argumentu
@@ -91,29 +92,105 @@ int main(int argc, char **argv) {
     }
 
     // celkovy pocet portu
-    int pu_arr_size = 0;
+    //int pu_arr_size = 0;
     int pt_arr_size = 0;
+    int min_port;
+
     // kontrola argumentu pu a pt
-    processArgument(&ret_pt, pt_arr, &pt_arr_size, pt);
-    processArgument(&ret_pu, pu_arr, &pu_arr_size, pu);
+    //processArgument(ret_pt, &pt_arr, &pt_arr_size, pt);
+    //processArgument(ret_pu, pu_arr, &pu_arr_size, pu);
+
+    // vyjebany argumenty a malloc 
+
+    int size = 0;
+
+    if(ret_pt == 1) { // hledas -
+        struct port *pt_arr_subst = malloc(sizeof(struct port)*2);
+        if(pt_arr_subst == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            exit(1);
+        }
+        int i = 0;
+        char *end;
+        char *p = strtok(pt, "-");
+        while(p) {
+            pt_arr_subst[i].port = (int)strtol(p, &end, 10);
+            p = strtok(NULL, "-");
+            i++;
+        }
+        size = pt_arr_subst[1].port - pt_arr_subst[0].port +1;
+        pt_arr_size = size;
+        min_port = pt_arr_subst[0].port;
+        pt_arr = malloc(sizeof(struct port)*size);
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            exit(1);            
+        }
+
+        for(int j = 0; j < pt_arr_size; j++) {
+            pt_arr[j].port = pt_arr_subst[0].port + j;
+            pt_arr[j].count = 0;
+            pt_arr[j].passed = false;
+        }
+        free(pt_arr_subst);
+    }
+    else if(ret_pt == 2) { // hledas ,
+        int l = getCharCount(pt,',');
+        pt_arr = malloc(sizeof(struct port) * (l+1));
+        size = l+1;
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            exit(1);
+        }
+        int i = 0;
+        char *end;
+        char *p = strtok(pt, ",");
+        while (p) {
+            pt_arr[i].port = (int)strtol(p, &end, 10);
+            pt_arr[i].count = 0;
+            pt_arr[i].passed = false;
+            pt_arr[i].rst = 0;
+            p = strtok(NULL, ",");
+            i++;
+        }
+        pt_arr_size = size;
+    }
+    else { // vkladas cely cislo do pole
+        pt_arr = malloc(sizeof(struct port));
+        char *end;
+        if(pt_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            exit(1);
+        }
+        pt_arr[0].port = (int)strtol(pt, &end, 10);
+        pt_arr[0].count = 0;
+        pt_arr[0].passed = false;
+        size = 1;
+        pt_arr_size = 1;
+        min_port = pt_arr[0].port;
+    }
+
+    for(int i = 0; i < size; i++) {
+        if(pt_arr[i].port > 65535 || pt_arr[i].port < 0) {
+            fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
+            exit(1);
+        }
+    }
 
     // zpracuj hosta => target
     struct hostent *hname;
 	struct sockaddr_in target;
-	hname = gethostbyname(host);
-    memset(&target, '\0', sizeof(target));
-	target.sin_family = hname->h_addrtype;
-	target.sin_port = 0;
-	target.sin_addr.s_addr = *(long*)hname->h_addr_list[0];
+    if ((hname = gethostbyname(host)) == NULL) {
+        fprintf(stderr,"Nelze prevest host na ip.\n");
+        exit(1);
+    }
+    memcpy(&target.sin_addr, hname->h_addr_list[0], hname->h_length);
+    target.sin_family = AF_INET;
+    target.sin_port = htons(1337);
 
     // zalozeni TCP socketu
     int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
     if (client < 0)  
-        fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
-
-    // zalozeni UDP socketu
-    int client_udp = socket(AF_INET, SOCK_RAW, IPPROTO_UDP); // SOCKET POUZE NA UDP
-    if (client_udp < 0)  
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     // inicializace seznamu interfaces pro ping
@@ -132,7 +209,6 @@ int main(int argc, char **argv) {
     int passed_interfaces = 0; // 0..1..2: snizuje se pocet pouzitych decoy adres z kazdeho dalsiho rozhrani
 
     for(int i = 0; i < interfaces_count; i++) {
-
         ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
 
         // nastav argumenty na ping
@@ -158,15 +234,18 @@ int main(int argc, char **argv) {
         ping_arg->ok = &ping_succ;
         ping_arg->target_struct = &target;
 
+
         if(ping(ping_arg)) { // ping prosel
             passed_interfaces++; // pocet rozhrani co prosly
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
-            break; // uz dal nepinguj z tohohle rozhrani
+            continue; // uz dal nepinguj z tohohle rozhrani
         }  
+
         free(ping_arg->target_struct);
         free(ping_arg->ok);
         free(ping_arg);
+
     }
 
     // zpracovani pole decoy adres
@@ -187,9 +266,9 @@ int main(int argc, char **argv) {
 
         for(int i = 0; i < interfaces_count; i++) {
             if(interfaces[i].usable) {
-                memset(addresses[decoy_count].ip,'\0',16);
+                memset(&addresses[decoy_count].ip,'\0',16);
                 strcpy(addresses[decoy_count].ip,interfaces[i].ip);
-                memset(addresses[decoy_count].ifc,'\0',20);
+                memset(&addresses[decoy_count].ifc,'\0',20);
                 strcpy(addresses[decoy_count].ifc,interfaces[i].name);
                 decoy_count++;
             }
@@ -201,13 +280,19 @@ int main(int argc, char **argv) {
     }
 
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
-    // n pocet 3l3m3ntu, MAX 65535
-    // RANDMAX nastaveno na 2,147,483,647
-    // nastav novou globalni frontu plnou portu ke zpracovani
+
     randomize(pt_arr, pt_arr_size);
 
-    struct queue *global_queue = malloc(pt_arr_size * sizeof(struct port));
-
+    global_queue = malloc(sizeof(struct queue));
+    global_queue->q = malloc(pt_arr_size * sizeof(struct port *));
+    if(global_queue == NULL) {
+        fprintf(stderr,"Chyba pri alokaci pameti.\n");
+        exit(1);   
+    }
+    if(global_queue->q == NULL) {
+        fprintf(stderr,"Chyba pri alokaci pameti.\n");
+        exit(1);   
+    }
     global_queue->count = pt_arr_size;
     global_queue->q = pt_arr;
     global_queue->front = 0;
@@ -228,22 +313,12 @@ int main(int argc, char **argv) {
             // argumenty single_ifc->port snifferu + domain
             struct interface_arguments *interface_loop_arg = malloc(sizeof(struct interface_arguments));
             interface_loop_arg->addresses = malloc(DECOYS * sizeof(struct single_address *));
-            interface_loop_arg->global_queue = malloc(sizeof(struct queue));            
-            interface_loop_arg->global_queue->q = malloc(pt_arr_size * sizeof(struct port *));
 
             if(interface_loop_arg == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-            if(interface_loop_arg->global_queue == NULL) {
-                fprintf(stderr,"Chyba pri alokaci pameti.\n");
-                exit(1);        
-            }
             if(interface_loop_arg->addresses == NULL) {
-                fprintf(stderr,"Chyba pri alokaci pameti.\n");
-                exit(1);        
-            }
-            if(interface_loop_arg->global_queue->q == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
@@ -256,7 +331,7 @@ int main(int argc, char **argv) {
             interface_loop_arg->addresses = addresses;
             interface_loop_arg->decoy_count = decoy_count;
             interface_loop_arg->client = client;
-            interface_loop_arg->global_queue = global_queue;
+            interface_loop_arg->min_port = min_port;
 
             if (pthread_create(&single_interface[c++], NULL, interface_looper, (void *)interface_loop_arg)) {
                 fprintf(stderr, "Chyba pri vytvareni vlakna.\n");

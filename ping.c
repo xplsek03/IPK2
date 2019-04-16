@@ -115,15 +115,15 @@ void *ping_sniffer(void *arg) {
 	}
     else if(retv < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
-        free(ping_callback_arg->sniff);
-        free(ping_callback_arg);
+        //free(ping_callback_arg->sniff);
+        //free(ping_callback_arg);
 		exit(1);
     }
 
     pcap_close(sniff);
 
-    free(ping_callback_arg->sniff);
-    free(ping_callback_arg);
+    //free(ping_callback_arg->sniff);
+    //free(ping_callback_arg);
 
     return NULL;
 }

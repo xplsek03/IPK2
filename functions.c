@@ -21,7 +21,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
+#define SLEEP_TIME 5 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -34,6 +34,8 @@
 extern pthread_mutex_t mutex_queue_size;
 extern pthread_mutex_t mutex_queue_remove;
 extern pthread_mutex_t mutex_queue_insert;
+// globalni fronta portu
+extern struct queue *global_queue;
 
 /*********************************************************************************************
  *     
@@ -148,6 +150,7 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
  *********************************************************************************************/
 void *interface_sniffer(void *arg) {
 
+    printf("pred argumenty.\n");
     struct interface_sniffer_arguments *args = (struct interface_sniffer_arguments *)arg;
 
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
@@ -164,9 +167,9 @@ void *interface_sniffer(void *arg) {
     pcap_t *ifc_sniff = pcap_open_live(args->ifc, BUFSIZ, 1, 1000, errbuf); // 1514, 4000
     if(ifc_sniff == NULL) {
         fprintf(stderr, "Couldn't open device %s: %s\n", args->ifc, errbuf);
-        free(args->end_of_evangelion);
-        free(args->local_list);
-        free(args);
+        //free(args->end_of_evangelion);
+        //free(args->local_list);
+        //free(args);
         exit(1);
     }   
     int retv;
@@ -193,31 +196,39 @@ void *interface_sniffer(void *arg) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
         exit(1);
     }
-    interface_callback_arg->local_list = args->local_list;
+    for(int i = 0; i < args->pt_arr_size; i++)
+        interface_callback_arg->local_list[i] = args->local_list[i];
     memset(interface_callback_arg->target,'\0',16);
     strcpy(interface_callback_arg->target,args->target);
     interface_callback_arg->end_of_evangelion = args->end_of_evangelion;
     interface_callback_arg->sniff = ifc_sniff;
+    interface_callback_arg->min_port = args->min_port;
+    interface_callback_arg->local_address_counter = args->local_address_counter;
 
     for(int i = 0; i < args->local_address_counter; i++) {
         memset(interface_callback_arg->local_addresses[i],'\0',16);
         strcpy(interface_callback_arg->local_addresses[i],args->local_addresses[i]);
     }
 
+    printf("pred loop.\n");
+
     retv = pcap_loop(ifc_sniff, -1, (pcap_handler)interface_callback, (unsigned char*)interface_callback_arg);
-    if(retv < 0) {
+    // z callbacku byl zavolan breakloop
+    if(retv != -2 && retv < 0) {
         fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(ifc_sniff));
-        free(args->end_of_evangelion);
-        free(args->local_list);
-        free(args);
+        //free(args->end_of_evangelion);
+        //free(args->local_list);
+        //free(args);
         exit(1);
     }
 
     pcap_close(ifc_sniff);
     
-    free(args->end_of_evangelion);
-    free(args->local_list);
-    free(args);
+    //free(args->end_of_evangelion);
+    //free(args->local_list);
+    //free(args);
+
+    printf("SNIFFER SKONCIL.\n");
 
     return NULL;
 }
@@ -232,7 +243,7 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
     arg = (struct interface_callback_arguments *)arg;
 
     // jeste neni konec
-    if(!arg->end_of_evangelion) {
+    if(!(*arg->end_of_evangelion)) {
 
         struct iphdr *ip;
         ip = (struct iphdr *)(packet + 14);
@@ -255,12 +266,12 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
 
                         if(tcp->tcph_syn) {// tcp->tcph_ack && tcp->tcph_syn
                             unsigned short srcport = ntohs(tcp->tcph_srcport);
-                            if(!arg->local_list[srcport-1].port)
-                                arg->local_list[srcport-1].passed = true;
+                            if(!arg->local_list[srcport-arg->min_port]->port)
+                                arg->local_list[srcport-arg->min_port]->passed = true;
                         }
                         else if(tcp->tcph_rst) {
                             unsigned short srcport = ntohs(tcp->tcph_srcport);
-                            arg->local_list[srcport-1].rst = arg->local_list[srcport-1].rst + 1;
+                            (arg->local_list[srcport-arg->min_port]->rst)++;
                         }
                     }
 
@@ -271,10 +282,10 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
     else
         pcap_breakloop(arg->sniff);  
 
-    free(arg->sniff);
-    free(arg->local_list);
-    free(arg->end_of_evangelion);
-    free(arg);
+    //free(arg->sniff);
+    //free(arg->local_list);
+    //free(arg->end_of_evangelion);
+    //free(arg);
 
 }
 
@@ -339,7 +350,7 @@ struct single_interface *getInterface(int *interfaces_count) {
         }
     }
 
-    freeifaddrs(ifaddr);
+    //freeifaddrs(ifaddr);
     return interfaces;
 }
 
@@ -415,9 +426,9 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
 
         ping(ping_arg);
 
-        free(ping_arg->ok);
-        free(ping_arg->target_struct);
-        free(ping_arg);
+        ////free(ping_arg->ok);
+        ////free(ping_arg->target_struct);
+        ////free(ping_arg);
 
         if(decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
             decoy_ping_succ = false;
@@ -447,6 +458,15 @@ int rndm(int lower, int upper) {
 
 /*********************************************************************************************
  *     
+ * vyber cekaci cas v microsec
+ *
+ *********************************************************************************************/
+unsigned long rndmsleep(unsigned long lower, unsigned long upper) { 
+    return (rand() % (upper - lower + 1)) + lower;
+}
+
+/*********************************************************************************************
+ *     
  * rizeni celeho jednoho interface
  *
  *********************************************************************************************/
@@ -468,10 +488,18 @@ void *interface_looper(void* arg) {
     }
 
     // lokalni seznam portu ke zpracovani na tomhle interface
-    struct port local_list[args->pt_arr_size];
+    struct port *local_list = malloc(sizeof(struct port) * args->pt_arr_size);
+    if(local_list == NULL) {
+        fprintf(stderr,"Chyba pri alokaci pameti.\n");
+        exit(1);        
+    }
     for(int i = 0; i < args->pt_arr_size; i++) {
         local_list[i].port = 0;
+        local_list[i].passed = false;
+        local_list[i].count = 0;
+        local_list[i].rst = 0;
     }
+
     int local_list_counter = 0; // pocet polozek v lokalnim listu
     // zda je lokalni list prazdny - zapne to handler, zacne konec interface
     bool interface_killer = false;
@@ -494,7 +522,9 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    interface_sniff_arg->local_list = local_list;
+    for(int i = 0; i < args->pt_arr_size; i++) {
+        interface_sniff_arg->local_list[i] = &local_list[i];
+    }
     memset(interface_sniff_arg->ifc,'\0',20);
     strcpy(interface_sniff_arg->ifc,args->ifc);
     memset(interface_sniff_arg->target,'\0',16);
@@ -506,6 +536,7 @@ void *interface_looper(void* arg) {
     }
     interface_sniff_arg->local_address_counter = local_address_counter;
     interface_sniff_arg->pt_arr_size = args->pt_arr_size;
+    interface_sniff_arg->min_port = args->min_port;
 
     // vytvor argumenty interface handleru
     struct interface_handler_arguments *interface_handler_arg = malloc(sizeof(struct interface_handler_arguments));
@@ -528,41 +559,28 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    interface_handler_arg->global_queue = malloc(sizeof(struct queue *));
-    if(interface_handler_arg->global_queue == NULL) {
-        fprintf(stderr,"Chyba pri alokaci pameti.\n");
-        exit(1);        
-    }
-    interface_handler_arg->global_queue->q = malloc(args->pt_arr_size * sizeof(struct port *));
-    if(interface_handler_arg->global_queue->q == NULL) {
-        fprintf(stderr,"Chyba pri alokaci pameti.\n");
-        exit(1);        
-    }
-    interface_handler_arg->global_queue = args->global_queue;
-    interface_handler_arg->global_queue->q = args->global_queue->q;
+
     interface_handler_arg->interface_killer = &interface_killer;
     interface_handler_arg->local_list_counter = &local_list_counter;
     interface_handler_arg->pt_arr_size = args->pt_arr_size;
-    interface_handler_arg->local_list = local_list;
+    for(int i = 0; i < args->pt_arr_size; i++) {
+        interface_handler_arg->local_list[i] = &local_list[i];
+    }
 
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&ifc_sniff, NULL, interface_sniffer, (void *)interface_sniff_arg)) {
         fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-        free(args->addresses);
-        free(args->global_queue->q);
-        free(args->global_queue);
-        free(args);
+        //free(args->addresses);
+        //free(args);
         exit(1);
     }
 
     // vytvor port handler a nahraj do nej argumenty
     if (pthread_create(&ifc_handler, NULL, interface_handler, (void *)interface_handler_arg)) {
         fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-        free(args->addresses);
-        free(args->global_queue->q);
-        free(args->global_queue);
-        free(args);
+        //free(args->addresses);
+        //free(args);
         exit(1);
     }
 
@@ -579,26 +597,21 @@ void *interface_looper(void* arg) {
     void *retval[domain_counter];
     int c = 0; // vnitrni pocitadlo generatoru vlaken
 
-    for(int i = 0; i < args->decoy_count; i++) {
+    for(int i = 0; i < DECOYS; i++) {
         if(!strcmp(args->addresses[i].ifc,args->ifc)) {
             struct domain_arguments *domain_arg = malloc(sizeof(struct domain_arguments));
             domain_arg->local_list = malloc(args->pt_arr_size * sizeof(struct port *));
             if(domain_arg->local_list == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
-            }            
-            domain_arg->global_queue = malloc(sizeof(struct queue *));
-            domain_arg->global_queue->q = malloc(args->pt_arr_size * sizeof(struct port *));
+            }     
+            domain_arg->end_of_evangelion = malloc(sizeof(bool *));
+            if(domain_arg->end_of_evangelion == NULL) {
+                fprintf(stderr,"Chyba pri alokaci pameti.\n");
+                exit(1);        
+            }      
             domain_arg->local_list_counter = malloc(sizeof(int *));
             if(domain_arg == NULL) {
-                fprintf(stderr,"Chyba pri alokaci pameti.\n");
-                exit(1);        
-            }
-            if(domain_arg->global_queue == NULL) {
-                fprintf(stderr,"Chyba pri alokaci pameti.\n");
-                exit(1);        
-            }
-            if(domain_arg->global_queue->q == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
@@ -606,18 +619,19 @@ void *interface_looper(void* arg) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-
             domain_arg->local_list_counter = &local_list_counter;
-            domain_arg->global_queue = args->global_queue;
-            domain_arg->global_queue->q = args->global_queue->q;
-            domain_arg->local_list = local_list;
+            domain_arg->min_port = args->min_port;
+            for(int i = 0; i < args->pt_arr_size; i++) {
+                domain_arg->local_list[i] = &local_list[i];
+            }
             domain_arg->client = args->client;
             memset(domain_arg->target_address,'\0',16);
             strcpy(domain_arg->target_address,args->target_address);
             domain_arg->pt_arr_size = args->pt_arr_size;
             memset(domain_arg->ip,'\0',16);
             strcpy(domain_arg->ip,args->addresses[i].ip);
-            
+            domain_arg->end_of_evangelion = &komm_susser_todd;
+
             pthread_create(&domain[c++], NULL, domain_loop, (void *)domain_arg);
         }
     }
@@ -627,8 +641,12 @@ void *interface_looper(void* arg) {
     // muzeme jen doufat ze se nevypnou uplne vsechny zaraz i kdyz nekde neco bude
     while(true) {
         sleep(5);
-        if(interface_killer && queue_isEmpty(args->global_queue->count))
+        printf("ifc killer: %i\n",interface_killer);
+        printf("fronta prazdna: %i\n",queue_isEmpty(global_queue->count));
+        if(interface_killer && queue_isEmpty(global_queue->count)) {
+            printf("killing interface.\n");
             break;
+        }
     }
     komm_susser_todd = true; // ukonci sniffer
 
@@ -639,10 +657,8 @@ void *interface_looper(void* arg) {
     // pockej na port sniffer
     pthread_join(ifc_sniff, NULL);
     
-    free(args->addresses);
-    free(args->global_queue->q);
-    free(args->global_queue);
-    free(args);
+    //free(args->addresses);
+    //free(args);
 
     return NULL;
 } 
@@ -666,51 +682,60 @@ void *interface_handler(void *arg) {
     while(true) {
         sleep(SLEEP_TIME);
         if(semi_empty) {
-            if(!args->local_list_counter)
+            if(*args->local_list_counter == 0)
                 break;
             else
                 semi_empty = false;
         }
-        if(!args->local_list_counter) {
+        if(*args->local_list_counter == 0) {
             semi_empty = true;
             continue;
         }
         // tady zacina standartni prochazeni seznamu
+        printf("standartne prochazim seznam.\n");
         gettimeofday(&timestamp,NULL);
         for(int i = 0; i < args->pt_arr_size; i++) {
-            if(!args->local_list[i].port && ((timestamp.tv_sec - args->local_list[i].time.tv_sec) >= SLEEP_TIME)) {
-                if(args->local_list[i].passed) { // aktivni port
-                    printf("TCP PORT %i OPEN\n",args->local_list[i].port);
-                    args->local_list[i].port = 0;
+            if(args->local_list[i]->port != 0 && ((timestamp.tv_sec - args->local_list[i]->time.tv_sec) >= SLEEP_TIME)) {
+                if(args->local_list[i]->passed) { // aktivni port
+                    printf("aktivni port.\n");
+                    printf("TCP PORT %i OPEN\n",args->local_list[i]->port);
+                    args->local_list[i]->port = 0;
+                    (*args->local_list_counter)--;
                 }
                 else { // neaktivni port
-                    if(args->local_list[i].count < 2) { // posli ho zpet do fronty
-                        args->local_list[i].count = args->local_list[i].count + 1;
-                        args->local_list[i].port = 0;
-                        queue_insert(args->local_list[i], args->global_queue->rear, args->pt_arr_size, args->global_queue->q, args->global_queue->count);
+                printf("neaktivni port.\n");
+                    if(args->local_list[i]->count < 2) { // posli ho zpet do fronty
+                        printf("port tu jeste nebyl 2x.\n");
+                        (args->local_list[i]->count)++;
+                        queue_insert(*args->local_list[i], &(global_queue->rear), args->pt_arr_size, global_queue->q, &(global_queue->count));
+                        args->local_list[i]->port = 0;
+                        (*args->local_list_counter)--;
                     }
                     else {
-                        if(args->local_list[i].rst == 2) { // pokazde se vratil RST, opravdu zavreny
-                            printf("TCP PORT %i CLOSED\n",args->local_list[i].port);
-                            args->local_list[i].port = 0;  
+                        if((*args->local_list[i]).rst == 2) { // pokazde se vratil RST, opravdu zavreny
+                            printf("Port byl zavreny opravdu - rst.\n");
+                            printf("TCP PORT %i CLOSED\n",(*args->local_list[i]).port);
+                            (*args->local_list[i]).port = 0;
+                            (*args->local_list_counter)--;
                         }  
                         else { // pri nejakem pokusu napriklad nevratil nic
-                             printf("TCP PORT %i FILTERED\n",args->local_list[i].port);
-                            args->local_list[i].port = 0;                             
+                            printf("nic nevratil, filtered.\n");
+                             printf("TCP PORT %i FILTERED\n",(*args->local_list[i]).port);
+                            (*args->local_list[i]).port = 0;
+                            (*args->local_list_counter)--;                           
                         }                    
                     }
                 }
             }
         }
     }
-    args->interface_killer = (bool *)true; // timhle rikas interface aby vypnulo sniffer
+    (*args->interface_killer) = true; // timhle rikas interface aby vypnulo sniffer
+    printf("HANDLER SKONCIL.\n");
 
-    free(args->interface_killer);
-    free(args->local_list_counter);
-    free(args->local_list);
-    free(args->global_queue->q);
-    free(args->global_queue);
-    free(args);
+    //free(args->interface_killer);
+    //free(args->local_list_counter);
+    //free(args->local_list);
+    //free(args);
 
     return NULL;    
 }
@@ -728,30 +753,51 @@ void *domain_loop(void *arg) {
     // rozbal argumenty
     struct domain_arguments *args = (struct domain_arguments*)arg;
 
-    while(!queue_isEmpty(args->global_queue->count)) {
+    // mel by to vypnout handler
+    while(!(*args->end_of_evangelion)) {
+
+        // BUG sleep random time between 0 - 2 mezi vyberama kazdyho synu
+
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
+/*
+        printf("fronta ve stavu:\n");
+        for(int i = 0; i < args->pt_arr_size; i++)
+            printf("port %i\n",global_queue->q[i].port);
+            printf("rear %i\n",global_queue->rear);
+            printf("front %i\n",global_queue->front);
+*/
+
         // z fronty vezmi port
-        struct port worked_port = queue_removeData(args->global_queue->q, args->global_queue->front, args->pt_arr_size, args->global_queue->count);
+        if(!queue_isEmpty(global_queue->count)) {
+            struct port worked_port = queue_removeData(global_queue->q, &(global_queue->front), args->pt_arr_size, &(global_queue->count));
 
-        send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
+            // zpracovany port dej do local listu
+            (*args->local_list[worked_port.port - args->min_port]).count = worked_port.count;
+            (*args->local_list[worked_port.port - args->min_port]).port = worked_port.port;
+            (*args->local_list[worked_port.port - args->min_port]).passed = worked_port.passed;
+            gettimeofday(&timestamp,NULL);
+            (*args->local_list[worked_port.port - args->min_port]).time.tv_sec = timestamp.tv_sec;
+            // zvys citatc lokalniho seznamu
+            (*args->local_list_counter)++;
+            // odesli na port
+            send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
 
-        // zpracovany port dej do local listu
-        args->local_list[worked_port.port-1].count = worked_port.count;
-        args->local_list[worked_port.port-1].port = worked_port.port;
-        args->local_list[worked_port.port-1].passed = worked_port.passed;
-        gettimeofday(&timestamp,NULL);
-        args->local_list[worked_port.port-1].time.tv_sec = timestamp.tv_sec;
-        // zvys citatc lokalniho seznamu
-        args->local_list_counter = args->local_list_counter + 1;
+            printf("count port in list: %i\n", *args->local_list_counter);
+            printf("local list po pridani:\n");
+            for(int i = 0; i < args->pt_arr_size; i++)
+                printf("%i\n",args->local_list[i]->port);
+        }
+
+        // cekej mezi 1-2 s
+        usleep(rndmsleep(1000000,2000000));
     }
+    printf("DOMENA SKONCILA.\n");
 
-    free(args->local_list);
-    free(args->local_list_counter);
-    free(args->global_queue->q);
-    free(args->global_queue);
-    free(args);
+    //free(args->local_list);
+    //free(args->local_list_counter);
+    //free(args);
 
     return NULL;
 
@@ -827,9 +873,7 @@ int getCharCount(char *str, char z) {
  * funkce ke globalni fronte portu
  *
  *********************************************************************************************/
-struct port queue_peek(struct port *q, int front) { // nepouzivat
-    return q[front];
-}
+
 bool queue_isEmpty(int count) {
     return count == 0;
 }
@@ -841,29 +885,25 @@ int queue_size(int count) { // dat mutex
     return count;
     pthread_mutex_unlock(&mutex_queue_size);
 }  
-void queue_insert(struct port data, int rear, int max, struct port *q, int count) {
+void queue_insert(struct port data, int *rear, int max, struct port *q, int *count) {
     pthread_mutex_lock(&mutex_queue_insert);
-    if(!queue_isFull(count, max)) {
-	    if(rear == max-1) {
-            rear = -1;            
+    if(!queue_isFull(*count, max)) {
+	    if(*rear == max-1) {
+            *rear = -1;            
         }       
-        q[++rear] = data;
-        count++;
+        q[++(*rear)] = data;
+        (*count)++;
     }
     pthread_mutex_unlock(&mutex_queue_insert);
 }
-struct port queue_removeData(struct port *q, int front, int max, int count) { // dat mutex
+struct port queue_removeData(struct port *q, int *front, int max, int *count) { // dat mutex
     pthread_mutex_lock(&mutex_queue_remove);
-    //if(queue_isEmpty(count)) { // asi neni potreba
-    //    pthread_mutex_unlock(&mutex_queue_remove);
-    //    return NULL;
-    //}
 
-    struct port data = q[front++];
-	if(front == max) {
-        front = 0;
+    struct port data = q[(*front)++];
+	if(*front == max) {
+        *front = 0;
     }
-	count--;
+	(*count)--;
     pthread_mutex_unlock(&mutex_queue_remove);
     return data;  
 }
@@ -874,15 +914,14 @@ struct port queue_removeData(struct port *q, int front, int max, int count) { //
  *
  *********************************************************************************************/
 
-void processArgument(int *ret_px, struct port *px_arr, int *px_arr_size, char *px) {
+void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *px) {
 
     // pocet clenu portu
     int size = 0;
 
-    if(*ret_px == 1) { // hledas -
-        px_arr = malloc(sizeof(struct port)*2);
-        size = 2;
-        if(px_arr == NULL) {
+    if(ret_px == 1) { // hledas -
+        struct port *px_arr_subst = malloc(sizeof(struct port)*2);
+        if(px_arr_subst == NULL) {
             fprintf(stderr,"Chyba pri alokaci.\n");
             exit(1);
         }
@@ -890,18 +929,29 @@ void processArgument(int *ret_px, struct port *px_arr, int *px_arr_size, char *p
         char *end;
         char *p = strtok(px, "-");
         while(p) {
-            px_arr[i].port = (int)strtol(p, &end, 10);
-            px_arr[i].count = 0;
-            px_arr[i].passed = false;
+            px_arr_subst[i].port = (int)strtol(p, &end, 10);
             p = strtok(NULL, "-");
             i++;
         }
+        size = px_arr_subst[1].port - px_arr_subst[0].port +1;
+        *px_arr_size = size;
+        *px_arr = malloc(sizeof(struct port)*size);
+        if(*px_arr == NULL) {
+            fprintf(stderr,"Chyba pri alokaci.\n");
+            exit(1);            
+        }
 
-        *px_arr_size = px_arr[1].port - px_arr[0].port +1;
+        for(int j = 0; j < *px_arr_size; j++) {
+            px_arr[j]->port = px_arr_subst[0].port + j;
+            px_arr[j]->count = 0;
+            px_arr[j]->passed = false;
+            printf("v portu je %i\n",px_arr[j]->port);
+        }
+        //free(px_arr_subst);
     }
-    else if(*ret_px == 2) { // hledas ,
+    else if(ret_px == 2) { // hledas ,
         int l = getCharCount(px,',');
-        px_arr = malloc(sizeof(struct port) * (l+1));
+        *px_arr = malloc(sizeof(struct port) * (l+1));
         size = l+1;
         if(px_arr == NULL) {
             fprintf(stderr,"Chyba pri alokaci.\n");
@@ -911,43 +961,33 @@ void processArgument(int *ret_px, struct port *px_arr, int *px_arr_size, char *p
         char *end;
         char *p = strtok(px, ",");
         while (p) {
-            px_arr[i].port = (int)strtol(p, &end, 10);
-            px_arr[i].count = 0;
-            px_arr[i].passed = false;
-            px_arr[i].rst = 0;
+            px_arr[i]->port = (int)strtol(p, &end, 10);
+            px_arr[i]->count = 0;
+            px_arr[i]->passed = false;
+            px_arr[i]->rst = 0;
             p = strtok(NULL, ",");
             i++;
         }
         *px_arr_size = size;
     }
     else { // vkladas cely cislo do pole
-        px_arr = malloc(sizeof(struct port));
+        *px_arr = malloc(sizeof(struct port));
         char *end;
         if(px_arr == NULL) {
             fprintf(stderr,"Chyba pri alokaci.\n");
             exit(1);
         }
-        px_arr[0].port = (int)strtol(px, &end, 10);
-        px_arr[0].count = 0;
-        px_arr[0].passed = false;
+        px_arr[0]->port = (int)strtol(px, &end, 10);
+        px_arr[0]->count = 0;
+        px_arr[0]->passed = false;
         size = 1;
         *px_arr_size = 1;
     }
 
     for(int i = 0; i < size; i++) {
-        if(px_arr[i].port > 65535 || px_arr[i].port < 0) {
+        if(px_arr[i]->port > 65535 || px_arr[i]->port < 0) {
             fprintf(stderr,"Spatny rozsah cisla portu (0 - 65535).\n");
             exit(1);
-        }
-    }
-
-    // pokud tam byla pomlcka, preved to na pole. BUG: dodelat i pro UDP, nejspis dat do funkce
-    if(*ret_px == 1) {
-        px_arr = realloc(px_arr, sizeof(struct port) * (*px_arr_size));
-        for(int i = 0; i < *px_arr_size; i++) {
-            px_arr[i].port = px_arr[0].port + i;
-            px_arr[i].count = 0;
-            px_arr[i].passed = false; 
         }
     }
 }
