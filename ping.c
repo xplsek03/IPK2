@@ -104,7 +104,7 @@ void *ping_sniffer(void *arg) {
 
     int retv;
 
-    // v pripade z eodpoved enchce prijit, skonci po 2s
+    // v pripade ze odpoved enchce prijit, skonci po 2s
     alarm(2);
     signal(SIGALRM, alarm_handler);
 
@@ -115,15 +115,10 @@ void *ping_sniffer(void *arg) {
 	}
     else if(retv < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
-        //free(ping_callback_arg->sniff);
-        //free(ping_callback_arg);
 		exit(1);
     }
 
     pcap_close(sniff);
-
-    //free(ping_callback_arg->sniff);
-    //free(ping_callback_arg);
 
     return NULL;
 }
@@ -209,9 +204,10 @@ int ping(struct ping_arguments *ping_arg) {
 
     pthread_join(ping_sniffer_thread, NULL); // pockej na ukonceni ping receiveru
 
-    if(ping_arg->ok)
+    if(ping_arg->ok) {
         return 1;
-    else
+    }
+    else {
         return 0;
-
+    }
 }

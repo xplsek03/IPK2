@@ -240,11 +240,11 @@ int main(int argc, char **argv) {
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, client, host, &target);
             continue; // uz dal nepinguj z tohohle rozhrani
-        }  
+        }
 
-        free(ping_arg->target_struct);
-        free(ping_arg->ok);
-        free(ping_arg);
+        //free(ping_arg->target_struct);
+        //free(ping_arg->ok);
+        //free(ping_arg);
 
     }
 
@@ -279,6 +279,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    printf("--ADRESY--\n");
+    for(int i = 0; i < decoy_count; i++)
+        printf("%s %s\n",addresses[i].ip,addresses[i].ifc);
+
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
 
     randomize(pt_arr, pt_arr_size);
@@ -298,6 +302,10 @@ int main(int argc, char **argv) {
     global_queue->front = 0;
     global_queue->rear = -1;
 
+    printf("--GLOBAL QUEUE--\n");
+    for(int i = 0; i < pt_arr_size; i++)
+        printf("%i\n",global_queue->q[i].port);
+
     ///////////////////////////////////////////////////////////
     // INTERFACES A PARALELNI ZPRACOVANI NA KAZDEM INTERFACE //
     ///////////////////////////////////////////////////////////
@@ -313,7 +321,6 @@ int main(int argc, char **argv) {
             // argumenty single_ifc->port snifferu + domain
             struct interface_arguments *interface_loop_arg = malloc(sizeof(struct interface_arguments));
             interface_loop_arg->addresses = malloc(DECOYS * sizeof(struct single_address *));
-
             if(interface_loop_arg == NULL) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
@@ -322,7 +329,6 @@ int main(int argc, char **argv) {
                 fprintf(stderr,"Chyba pri alokaci pameti.\n");
                 exit(1);        
             }
-
             memset(interface_loop_arg->ifc,'\0',20);
             strcpy(interface_loop_arg->ifc,interfaces[i].name);
             memset(interface_loop_arg->target_address,'\0',16);
@@ -354,6 +360,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    free(pt_arr);
     free(global_queue);
     free(interfaces);
     free(addresses);

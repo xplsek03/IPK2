@@ -150,7 +150,6 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
  *********************************************************************************************/
 void *interface_sniffer(void *arg) {
 
-    printf("pred argumenty.\n");
     struct interface_sniffer_arguments *args = (struct interface_sniffer_arguments *)arg;
 
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
@@ -209,8 +208,6 @@ void *interface_sniffer(void *arg) {
         memset(interface_callback_arg->local_addresses[i],'\0',16);
         strcpy(interface_callback_arg->local_addresses[i],args->local_addresses[i]);
     }
-
-    printf("pred loop.\n");
 
     retv = pcap_loop(ifc_sniff, -1, (pcap_handler)interface_callback, (unsigned char*)interface_callback_arg);
     // z callbacku byl zavolan breakloop
@@ -350,7 +347,7 @@ struct single_interface *getInterface(int *interfaces_count) {
         }
     }
 
-    //freeifaddrs(ifaddr);
+    freeifaddrs(ifaddr);
     return interfaces;
 }
 
@@ -426,10 +423,6 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
 
         ping(ping_arg);
 
-        ////free(ping_arg->ok);
-        ////free(ping_arg->target_struct);
-        ////free(ping_arg);
-
         if(decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
             decoy_ping_succ = false;
         }
@@ -487,6 +480,11 @@ void *interface_looper(void* arg) {
         }
     }
 
+    printf("--LOCAL ADDRESSES IFC--\n");
+    printf("adres count: %i\n",local_address_counter);
+    for(int i = 0; i < local_address_counter; i++)
+        printf("%s\n",local_addresses[i]);
+
     // lokalni seznam portu ke zpracovani na tomhle interface
     struct port *local_list = malloc(sizeof(struct port) * args->pt_arr_size);
     if(local_list == NULL) {
@@ -499,6 +497,10 @@ void *interface_looper(void* arg) {
         local_list[i].count = 0;
         local_list[i].rst = 0;
     }
+
+    printf("--INITIAL LOCAL LIST IFC--\n");
+    for(int i = 0; i < args->pt_arr_size; i++)
+        printf("%i\n",local_list[i].port);
 
     int local_list_counter = 0; // pocet polozek v lokalnim listu
     // zda je lokalni list prazdny - zapne to handler, zacne konec interface
@@ -544,29 +546,35 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
+    printf("jeden malloc.\n");
     interface_handler_arg->interface_killer = malloc(sizeof(bool *));
     if(interface_handler_arg->interface_killer == NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    interface_handler_arg->local_list = malloc(sizeof(struct port *));
+    printf("druhej malloc.\n");
+    interface_handler_arg->local_list = malloc(args->pt_arr_size * sizeof(struct port *));
     if(interface_handler_arg->local_list== NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
+    printf("treti malloc.\n");
     interface_handler_arg->local_list_counter = malloc(sizeof(int *));
     if(interface_handler_arg->local_list_counter == NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-
+    printf("ctvrty malloc.\n");
     interface_handler_arg->interface_killer = &interface_killer;
+        printf("paty malloc.\n");
     interface_handler_arg->local_list_counter = &local_list_counter;
+        printf("sesty malloc.\n");
     interface_handler_arg->pt_arr_size = args->pt_arr_size;
+        printf("sedmy malloc.\n");
     for(int i = 0; i < args->pt_arr_size; i++) {
         interface_handler_arg->local_list[i] = &local_list[i];
     }
-
+        printf("osmy malloc.\n");
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&ifc_sniff, NULL, interface_sniffer, (void *)interface_sniff_arg)) {
@@ -575,6 +583,7 @@ void *interface_looper(void* arg) {
         //free(args);
         exit(1);
     }
+        printf("--DEBUGG--\n");
 
     // vytvor port handler a nahraj do nej argumenty
     if (pthread_create(&ifc_handler, NULL, interface_handler, (void *)interface_handler_arg)) {
@@ -584,6 +593,8 @@ void *interface_looper(void* arg) {
         exit(1);
     }
 
+        printf("--DEBUGG2--\n");
+
     // spocitej kolik domen je v tomto interface
     int domain_counter = 0;
     for(int i = 0; i < args->decoy_count; i++) {
@@ -591,7 +602,7 @@ void *interface_looper(void* arg) {
             domain_counter++;
         }
     }
-
+    printf("--DEBUGG3--\n");
     // vytvor vlakna z decoy domen, pocet domen v interface
     pthread_t domain[domain_counter];
     void *retval[domain_counter];
@@ -641,10 +652,7 @@ void *interface_looper(void* arg) {
     // muzeme jen doufat ze se nevypnou uplne vsechny zaraz i kdyz nekde neco bude
     while(true) {
         sleep(5);
-        printf("ifc killer: %i\n",interface_killer);
-        printf("fronta prazdna: %i\n",queue_isEmpty(global_queue->count));
         if(interface_killer && queue_isEmpty(global_queue->count)) {
-            printf("killing interface.\n");
             break;
         }
     }
@@ -692,20 +700,16 @@ void *interface_handler(void *arg) {
             continue;
         }
         // tady zacina standartni prochazeni seznamu
-        printf("standartne prochazim seznam.\n");
         gettimeofday(&timestamp,NULL);
         for(int i = 0; i < args->pt_arr_size; i++) {
             if(args->local_list[i]->port != 0 && ((timestamp.tv_sec - args->local_list[i]->time.tv_sec) >= SLEEP_TIME)) {
                 if(args->local_list[i]->passed) { // aktivni port
-                    printf("aktivni port.\n");
                     printf("TCP PORT %i OPEN\n",args->local_list[i]->port);
                     args->local_list[i]->port = 0;
                     (*args->local_list_counter)--;
                 }
                 else { // neaktivni port
-                printf("neaktivni port.\n");
                     if(args->local_list[i]->count < 2) { // posli ho zpet do fronty
-                        printf("port tu jeste nebyl 2x.\n");
                         (args->local_list[i]->count)++;
                         queue_insert(*args->local_list[i], &(global_queue->rear), args->pt_arr_size, global_queue->q, &(global_queue->count));
                         args->local_list[i]->port = 0;
@@ -713,13 +717,11 @@ void *interface_handler(void *arg) {
                     }
                     else {
                         if((*args->local_list[i]).rst == 2) { // pokazde se vratil RST, opravdu zavreny
-                            printf("Port byl zavreny opravdu - rst.\n");
                             printf("TCP PORT %i CLOSED\n",(*args->local_list[i]).port);
                             (*args->local_list[i]).port = 0;
                             (*args->local_list_counter)--;
                         }  
                         else { // pri nejakem pokusu napriklad nevratil nic
-                            printf("nic nevratil, filtered.\n");
                              printf("TCP PORT %i FILTERED\n",(*args->local_list[i]).port);
                             (*args->local_list[i]).port = 0;
                             (*args->local_list_counter)--;                           
@@ -730,12 +732,6 @@ void *interface_handler(void *arg) {
         }
     }
     (*args->interface_killer) = true; // timhle rikas interface aby vypnulo sniffer
-    printf("HANDLER SKONCIL.\n");
-
-    //free(args->interface_killer);
-    //free(args->local_list_counter);
-    //free(args->local_list);
-    //free(args);
 
     return NULL;    
 }
@@ -761,14 +757,6 @@ void *domain_loop(void *arg) {
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
-/*
-        printf("fronta ve stavu:\n");
-        for(int i = 0; i < args->pt_arr_size; i++)
-            printf("port %i\n",global_queue->q[i].port);
-            printf("rear %i\n",global_queue->rear);
-            printf("front %i\n",global_queue->front);
-*/
-
         // z fronty vezmi port
         if(!queue_isEmpty(global_queue->count)) {
             struct port worked_port = queue_removeData(global_queue->q, &(global_queue->front), args->pt_arr_size, &(global_queue->count));
@@ -784,8 +772,7 @@ void *domain_loop(void *arg) {
             // odesli na port
             send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
 
-            printf("count port in list: %i\n", *args->local_list_counter);
-            printf("local list po pridani:\n");
+            printf("--LOCAL LIST STATUS--\n");
             for(int i = 0; i < args->pt_arr_size; i++)
                 printf("%i\n",args->local_list[i]->port);
         }
@@ -793,11 +780,6 @@ void *domain_loop(void *arg) {
         // cekej mezi 1-2 s
         usleep(rndmsleep(1000000,2000000));
     }
-    printf("DOMENA SKONCILA.\n");
-
-    //free(args->local_list);
-    //free(args->local_list_counter);
-    //free(args);
 
     return NULL;
 
