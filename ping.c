@@ -23,12 +23,8 @@
 #include "ping.h"
 #endif
 
-/*********************************************************************************************
- *     
- * globalni dniffer na ping, je tu kvuli sigalarm zastaveni
- *
- *********************************************************************************************/
-pcap_t *sniff; // globalni sniffer na ping
+extern pcap_t *sniff; // globalni sniffer na ping
+extern bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
 
 /*********************************************************************************************
  *     
@@ -36,7 +32,8 @@ pcap_t *sniff; // globalni sniffer na ping
  *
  *********************************************************************************************/
 void alarm_handler(int sig) {
-    pcap_breakloop(sniff);
+    if(alarm_signal)
+        pcap_breakloop(sniff);
 }
 
 /*********************************************************************************************
@@ -66,6 +63,7 @@ unsigned short checksum(void *b, int len) {
 void *ping_sniffer(void *arg) {
 
     struct ping_arguments args = *(struct ping_arguments*)arg;
+    alarm_signal = true;
 
 	char *dev = args.ifc;			/* The device to sniff on */
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
@@ -84,6 +82,10 @@ void *ping_sniffer(void *arg) {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
         exit(1);
     }
+
+    // v pripade ze odpoved enchce prijit, skonci po 3s
+    alarm(3);
+    signal(SIGALRM, alarm_handler);
 
     // argumenty co posles do callbacku
     struct ping_callback_arguments *ping_callback_arg = malloc(sizeof(struct ping_callback_arguments));
@@ -104,21 +106,18 @@ void *ping_sniffer(void *arg) {
 
     int retv;
 
-    // v pripade ze odpoved enchce prijit, skonci po 2s
-    alarm(2);
-    signal(SIGALRM, alarm_handler);
-
     retv = pcap_loop(sniff, -1, (pcap_handler)ping_callback, (unsigned char*)ping_callback_arg);
     // z callbacku byl zavolan breakloop
-	if (retv == -2) {
+	if (!alarm_signal && retv == -2) {
+        alarm_signal = false;
         args.ok = (bool *)true;
 	}
-    else if(retv < 0) {
+    else if(!alarm_signal && retv < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
 		exit(1);
     }
 
-    pcap_close(sniff);
+    alarm_signal = true;
 
     return NULL;
 }
@@ -192,7 +191,7 @@ int ping(struct ping_arguments *ping_arg) {
     pckt.hdr.un.echo.sequence = cnt++;
     pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
 
-    for(int i = 0; i < 5; i++) { // 5 odeslani pingu za sebou s intvl=1s
+    for(int i = 0; i < 3; i++) { // 5 odeslani pingu za sebou s intvl=1s
         sleep(1); // pockej chvili na receiver
         if (sendto(icmp_socket, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_arg->target_struct, sizeof(*ping_arg->target_struct)) < 0) {
             fprintf(stderr,"Chyba pri odesilani pingu pres socket. R: %s\n",strerror(errno));
@@ -201,7 +200,6 @@ int ping(struct ping_arguments *ping_arg) {
         if(ping_arg->ok)
             break;
     }
-
     pthread_join(ping_sniffer_thread, NULL); // pockej na ukonceni ping receiveru
 
     if(ping_arg->ok) {

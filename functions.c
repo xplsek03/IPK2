@@ -21,7 +21,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#define SLEEP_TIME 5 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
+#define SLEEP_TIME 4 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -225,8 +225,6 @@ void *interface_sniffer(void *arg) {
     //free(args->local_list);
     //free(args);
 
-    printf("SNIFFER SKONCIL.\n");
-
     return NULL;
 }
 
@@ -318,10 +316,6 @@ struct single_interface *getInterface(int *interfaces_count) {
         family = ifa->ifa_addr->sa_family;
 
         if (family == AF_INET) {
-
-            //struct sockaddr_ll *hw = (struct sockaddr_ll*)ifa->ifa_addr;
-            //for (int i=0; i < hw->sll_halen; i++)
-            //   printf("%02x%c", (hw->sll_addr[i]), (i+1!=hw->sll_halen)?':':'\n');
 
             s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, 16, NULL, 0, NI_NUMERICHOST);
             m = getnameinfo(ifa->ifa_netmask, sizeof(struct sockaddr_in), mask, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
@@ -470,9 +464,9 @@ void *interface_looper(void* arg) {
     struct interface_arguments *args = (struct interface_arguments*)arg;
 
     // vytvor tabulku s lokalnimi ip adresami tohoto rozhrani + jeji counter
-    local_address local_addresses[DECOYS];
+    local_address local_addresses[DECOYS+1];
     int local_address_counter = 0;
-    for(int i = 0; i < DECOYS; i++) {
+    for(int i = 0; i < DECOYS+1; i++) {
         if(!strcmp(args->addresses[i].ifc,args->ifc)) {
             memset(local_addresses[local_address_counter],'\0',16);
             strcpy(local_addresses[local_address_counter],args->addresses[i].ip);
@@ -480,10 +474,10 @@ void *interface_looper(void* arg) {
         }
     }
 
-    printf("--LOCAL ADDRESSES IFC--\n");
+    /*printf("--LOCAL ADDRESSES IFC--\n");
     printf("adres count: %i\n",local_address_counter);
     for(int i = 0; i < local_address_counter; i++)
-        printf("%s\n",local_addresses[i]);
+        printf("%s\n",local_addresses[i]);*/
 
     // lokalni seznam portu ke zpracovani na tomhle interface
     struct port *local_list = malloc(sizeof(struct port) * args->pt_arr_size);
@@ -498,9 +492,9 @@ void *interface_looper(void* arg) {
         local_list[i].rst = 0;
     }
 
-    printf("--INITIAL LOCAL LIST IFC--\n");
+    /*printf("--INITIAL LOCAL LIST IFC--\n");
     for(int i = 0; i < args->pt_arr_size; i++)
-        printf("%i\n",local_list[i].port);
+        printf("%i\n",local_list[i].port);*/
 
     int local_list_counter = 0; // pocet polozek v lokalnim listu
     // zda je lokalni list prazdny - zapne to handler, zacne konec interface
@@ -546,35 +540,27 @@ void *interface_looper(void* arg) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    printf("jeden malloc.\n");
     interface_handler_arg->interface_killer = malloc(sizeof(bool *));
     if(interface_handler_arg->interface_killer == NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    printf("druhej malloc.\n");
     interface_handler_arg->local_list = malloc(args->pt_arr_size * sizeof(struct port *));
     if(interface_handler_arg->local_list== NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    printf("treti malloc.\n");
     interface_handler_arg->local_list_counter = malloc(sizeof(int *));
     if(interface_handler_arg->local_list_counter == NULL) {
         fprintf(stderr,"Chyba pri alokaci pameti.\n");
         exit(1);        
     }
-    printf("ctvrty malloc.\n");
     interface_handler_arg->interface_killer = &interface_killer;
-        printf("paty malloc.\n");
     interface_handler_arg->local_list_counter = &local_list_counter;
-        printf("sesty malloc.\n");
     interface_handler_arg->pt_arr_size = args->pt_arr_size;
-        printf("sedmy malloc.\n");
     for(int i = 0; i < args->pt_arr_size; i++) {
         interface_handler_arg->local_list[i] = &local_list[i];
     }
-        printf("osmy malloc.\n");
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&ifc_sniff, NULL, interface_sniffer, (void *)interface_sniff_arg)) {
@@ -583,7 +569,6 @@ void *interface_looper(void* arg) {
         //free(args);
         exit(1);
     }
-        printf("--DEBUGG--\n");
 
     // vytvor port handler a nahraj do nej argumenty
     if (pthread_create(&ifc_handler, NULL, interface_handler, (void *)interface_handler_arg)) {
@@ -593,8 +578,6 @@ void *interface_looper(void* arg) {
         exit(1);
     }
 
-        printf("--DEBUGG2--\n");
-
     // spocitej kolik domen je v tomto interface
     int domain_counter = 0;
     for(int i = 0; i < args->decoy_count; i++) {
@@ -602,13 +585,12 @@ void *interface_looper(void* arg) {
             domain_counter++;
         }
     }
-    printf("--DEBUGG3--\n");
     // vytvor vlakna z decoy domen, pocet domen v interface
     pthread_t domain[domain_counter];
     void *retval[domain_counter];
     int c = 0; // vnitrni pocitadlo generatoru vlaken
 
-    for(int i = 0; i < DECOYS; i++) {
+    for(int i = 0; i < domain_counter; i++) {
         if(!strcmp(args->addresses[i].ifc,args->ifc)) {
             struct domain_arguments *domain_arg = malloc(sizeof(struct domain_arguments));
             domain_arg->local_list = malloc(args->pt_arr_size * sizeof(struct port *));
@@ -772,13 +754,13 @@ void *domain_loop(void *arg) {
             // odesli na port
             send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
 
-            printf("--LOCAL LIST STATUS--\n");
+            /*printf("--LOCAL LIST STATUS--\n");
             for(int i = 0; i < args->pt_arr_size; i++)
-                printf("%i\n",args->local_list[i]->port);
+                printf("%i\n",args->local_list[i]->port);*/
         }
 
-        // cekej mezi 1-2 s
-        usleep(rndmsleep(1000000,2000000));
+        // cekej mezi 0.5-1 s
+        usleep(rndmsleep(500000,1000000));
     }
 
     return NULL;
@@ -927,7 +909,6 @@ void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *p
             px_arr[j]->port = px_arr_subst[0].port + j;
             px_arr[j]->count = 0;
             px_arr[j]->passed = false;
-            printf("v portu je %i\n",px_arr[j]->port);
         }
         //free(px_arr_subst);
     }

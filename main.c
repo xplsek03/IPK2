@@ -10,12 +10,15 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <netdb.h>
+#include <pcap.h>
 
 pthread_mutex_t mutex_queue_remove = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 
 struct queue *global_queue;
+pcap_t *sniff; // globalni sniffer na ping
+bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
 
 #define RAND_MAX 2147483647
 
@@ -208,6 +211,8 @@ int main(int argc, char **argv) {
     int decoy_count = 0; // pocet ip adres
     int passed_interfaces = 0; // 0..1..2: snizuje se pocet pouzitych decoy adres z kazdeho dalsiho rozhrani
 
+    printf("Cekam na vytvoreni %i decoy adres.\n",DECOYS);
+
     for(int i = 0; i < interfaces_count; i++) {
         ping_succ = false; // promenna jestli byl ping ok, meneno z libpcap handleru
 
@@ -234,7 +239,6 @@ int main(int argc, char **argv) {
         ping_arg->ok = &ping_succ;
         ping_arg->target_struct = &target;
 
-
         if(ping(ping_arg)) { // ping prosel
             passed_interfaces++; // pocet rozhrani co prosly
             interfaces[i].usable = true; // rozhrani se da dal pouzivat, protoze se z nej da dosahnout na target
@@ -247,6 +251,8 @@ int main(int argc, char **argv) {
         //free(ping_arg);
 
     }
+
+    printf("Decoy adresy vytvoreny.\n");
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
@@ -261,7 +267,7 @@ int main(int argc, char **argv) {
         }
 
         // dopln seznam adres o adresy rozhrani
-        if((DECOYS - decoy_count < interfaces_count + 1) || (DECOYS > decoy_count + 1 + interfaces_count))
+        if(DECOYS != decoy_count + 1 + interfaces_count)
             addresses = realloc(addresses, sizeof(struct single_address)*(interfaces_count+1+decoy_count));
 
         for(int i = 0; i < interfaces_count; i++) {
@@ -279,12 +285,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("--ADRESY--\n");
+    /*printf("--ADRESY--\n");
     for(int i = 0; i < decoy_count; i++)
-        printf("%s %s\n",addresses[i].ip,addresses[i].ifc);
+        printf("%s %s\n",addresses[i].ip,addresses[i].ifc);*/
 
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
-
     randomize(pt_arr, pt_arr_size);
 
     global_queue = malloc(sizeof(struct queue));
@@ -302,9 +307,9 @@ int main(int argc, char **argv) {
     global_queue->front = 0;
     global_queue->rear = -1;
 
-    printf("--GLOBAL QUEUE--\n");
-    for(int i = 0; i < pt_arr_size; i++)
-        printf("%i\n",global_queue->q[i].port);
+    //printf("--GLOBAL QUEUE--\n");
+    //for(int i = 0; i < pt_arr_size; i++)
+    //    printf("%i\n",global_queue->q[i].port);
 
     ///////////////////////////////////////////////////////////
     // INTERFACES A PARALELNI ZPRACOVANI NA KAZDEM INTERFACE //
@@ -350,16 +355,7 @@ int main(int argc, char **argv) {
         pthread_join(single_interface[i], &retval[i]); // pockej az dojedou vsechna vlakna
     }
 
-    // vymaz po sobe arp zaznamy
-    if(passed_interfaces > 0) {
-        char arp_item_del[150];
-        memset(arp_item_del,'\0',150);
-        for(int i = 0; i < decoy_count; i++) {
-            snprintf(arp_item_del,149,"sudo arp -d %s",addresses[i].ip);
-            system(arp_item_del);
-        }
-    }
-
+    pcap_close(sniff);
     free(pt_arr);
     free(global_queue);
     free(interfaces);

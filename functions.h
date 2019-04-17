@@ -14,7 +14,7 @@
 #include <sys/time.h>
 #include <pcap.h>
 
-#define DECOYS 1
+#define DECOYS 10
 #define PCKT_LEN 8192
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
@@ -63,7 +63,7 @@ struct interface_sniffer_arguments {
     char ifc[20];
     char target[16];
     bool *end_of_evangelion;
-    local_address local_addresses[DECOYS];
+    local_address local_addresses[DECOYS+1];
     int local_address_counter;
     int pt_arr_size;
     struct port **local_list;
@@ -88,7 +88,7 @@ struct interface_callback_arguments {
     char target[16];
     bool *end_of_evangelion;
     pcap_t *sniff;
-    local_address local_addresses[DECOYS];
+    local_address local_addresses[DECOYS+1];
     int local_address_counter;
     struct port **local_list;
     int min_port;
