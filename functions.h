@@ -37,6 +37,7 @@ struct port {
 struct single_address {
     char ifc[20];
     char ip[16];
+    unsigned short cidr;
 };
 
 typedef char local_address[16];
@@ -123,3 +124,4 @@ void randomize(struct port *array, int n);
 void *get_mac(char *mac, char *dev);
 unsigned long rndmsleep(unsigned long lower, unsigned long upper);
 unsigned short rndmstr(unsigned short lower, unsigned short upper);
+static unsigned short cidr(char* ipAddress);

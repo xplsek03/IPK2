@@ -71,7 +71,6 @@ void *ping_sniffer(void *arg) {
     signal(SIGALRM, alarm_handler);
 
     // argumenty co posles do callbacku
-    printf("bool je pred ping loop %i\n",decoy_ping_succ);
     struct ping_callback_arguments *ping_callback_arg = malloc(sizeof(struct ping_callback_arguments));
     if(ping_callback_arg == NULL) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
@@ -93,7 +92,6 @@ void *ping_sniffer(void *arg) {
     retv = pcap_loop(sniff, -1, (pcap_handler)ping_callback, (unsigned char*)ping_callback_arg);
     // z callbacku byl zavolan breakloop
 	if (!alarm_signal && retv == -2) {
-        printf("z callback use vratil -2: nalezeno.\n");
         alarm_signal = false;
 	}
     else if(!alarm_signal && retv < 0) {

@@ -9,6 +9,7 @@
 #include <string.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <netinet/ether.h>
 #include <netinet/ip_icmp.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -23,7 +24,7 @@
 #include <limits.h>
 #include <stdbool.h>
 
-#define SLEEP_TIME 6 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
+#define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -50,11 +51,6 @@ unsigned short csum(unsigned short *ptr,int nbytes) {
     long sum;
     unsigned short oddbyte;
     short answer;
-
-    //Debug info
-    //hexdump((unsigned char *) ptr, nbytes);
-    //printf("csum nbytes: %d\n", nbytes);
-    //printf("csum ptr address: %p\n", ptr);
 
     sum=0;
     while(nbytes>1) {
@@ -304,8 +300,12 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
     if (!(*arg->end_of_evangelion))
     {
 
-        struct iphdr *ip;
-        ip = (struct iphdr *)(packet + 14);
+        struct ether_header* eth;
+        struct iphdr* ip;
+        struct tcphdr* tcp;
+
+	    packet += sizeof(struct ether_header);
+        ip = (struct iphdr*)packet;
 
         char srcname[16];
         inet_ntop(AF_INET, &ip->saddr, srcname, INET_ADDRSTRLEN);
@@ -321,20 +321,30 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
                 if (!strcmp(dstname, arg->local_addresses[i]))
                 { // jestli je cilova adresa v poli lokalnich adres
 
+                    printf("--PAKET--\n");
+
                     // start analyzy obsahu paketu
                     if (ip->protocol == 6)
                     { // je to tcp, takze RST/SYN/SYNACK
-                        struct tcphdr *tcp;
-                        tcp = (struct tcphdr *)(packet + 14 + ip->tot_len * 4);
+
+                        tcp = (struct tcphdr*)(packet+ ip->ihl * 4);
 
                         if (tcp->th_flags & TH_SYN)
                         { // SYN i ACK SYN
+                            printf("nalezen paket s syn/ack syn\n");
                             unsigned short srcport = ntohs(tcp->th_sport);
-                            if (!arg->local_list[srcport - arg->min_port]->port)
+                            printf("port: %i\n",srcport);
+                            if (arg->local_list[srcport - arg->min_port]->port != 0) {
                                 arg->local_list[srcport - arg->min_port]->passed = true;
+                                printf("v local seznamu neni na pozici 0, paket s portem na passed.\n");
+                            }
+                            else {
+                                printf("v seznamu byla 0.\n");
+                            }
                         }
                         else if (tcp->th_flags & TH_RST)
                         {
+                            printf("nalezen paket s RST.\n");
                             unsigned short srcport = ntohs(tcp->th_sport);
                             (arg->local_list[srcport - arg->min_port]->rst)++;
                         }
@@ -429,8 +439,6 @@ struct single_interface *getInterface(int *interfaces_count)
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct)
 { // https://stackoverflow.com/questions/44295654/print-all-ips-based-on-ip-and-mask-c
 
-    printf("VYGENERUJ DECOY ADRESY.\n");
-
     struct in_addr ipaddress, subnetmask;
 
     inet_pton(AF_INET, interface.ip, &ipaddress);
@@ -494,33 +502,89 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         decoy_target.sin_family = hname->h_addrtype;
         decoy_target.sin_port = 0;
         decoy_target.sin_addr.s_addr = *(long *)hname->h_addr_list[0];
-
         ping_arg->target_struct = &decoy_target;
-
-        printf("zpracovavas adresu %s\n",ping_arg->target);
 
         ping(ping_arg);
 
         if (decoy_ping_succ) { // pingovana adresa je pouzivana, pokracuj
             decoy_ping_succ = false;
-            printf("nepridavej adresu.\n");
         }
         else
         { 
-            printf("adresa je volna, pridej ji.\n");
             // pridej adresu do pole addresses a dokud jich neni %DECOYS, pokracuj
             if (add_decoy < (DECOYS / *passed_interfaces))
             {
                 memset(addresses[add_decoy].ip, '\0', 16); // mel by tu s vyssim poctem rozh by add_decoy
                 strcpy(addresses[add_decoy].ip, decoy);
+                addresses[add_decoy].cidr = cidr(interface.mask);
                 memset(addresses[add_decoy].ifc, '\0', 20);
                 strcpy(addresses[add_decoy].ifc, interface.name);
-                add_decoy++;                     // lokalni iterator
+
+                add_decoy++; // lokalni iterator
                 (*decoy_count)++; // globalni iterator decoy adres
             }
         }
     }
 }
+
+/*********************************************************************************************
+ *     
+ * prevod masky site na cidr
+ * https://stackoverflow.com/questions/6657475/netmask-conversion-to-cidr-format-in-c
+ * 
+ *********************************************************************************************/
+static unsigned short cidr(char* ipAddress)
+  {
+      unsigned short netmask_cidr;
+      int ipbytes[4];
+
+      netmask_cidr=0;
+      sscanf(ipAddress, "%d.%d.%d.%d", &ipbytes[0], &ipbytes[1], &ipbytes[2], &ipbytes[3]);
+
+      for (int i=0; i<4; i++)
+      {
+          switch(ipbytes[i])
+          {
+              case 0x80:
+                  netmask_cidr+=1;
+                  break;
+
+              case 0xC0:
+                  netmask_cidr+=2;
+                  break;
+
+              case 0xE0:
+                  netmask_cidr+=3;
+                  break;
+
+              case 0xF0:
+                  netmask_cidr+=4;
+                  break;
+
+              case 0xF8:
+                  netmask_cidr+=5;
+                  break;
+
+              case 0xFC:
+                  netmask_cidr+=6;
+                  break;
+
+              case 0xFE:
+                  netmask_cidr+=7;
+                  break;
+
+              case 0xFF:
+                  netmask_cidr+=8;
+                  break;
+
+              default:
+                  return netmask_cidr;
+                  break;
+          }
+      }
+
+      return netmask_cidr;
+  }
 
 /*********************************************************************************************
  *     
@@ -839,13 +903,13 @@ void *interface_handler(void *arg)
                         if ((*args->local_list[i]).rst == 2)
                         { // pokazde se vratil RST, opravdu zavreny
                             printf("TCP PORT %i CLOSED\n", (*args->local_list[i]).port);
-                            (*args->local_list[i]).port = 0;
+                            args->local_list[i]->port = 0;
                             (*args->local_list_counter)--;
                         }
                         else
                         { // pri nejakem pokusu napriklad nevratil nic
                             printf("TCP PORT %i FILTERED\n", (*args->local_list[i]).port);
-                            (*args->local_list[i]).port = 0;
+                            args->local_list[i]->port = 0;
                             (*args->local_list_counter)--;
                         }
                     }
