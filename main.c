@@ -257,14 +257,17 @@ int main(int argc, char **argv) {
 
     // zpracovani pole decoy adres
     if(passed_interfaces > 0) {
+        char ip_item[150];
         char arp_item[150];
         char mac[18];
         memset(mac,'\0',18);
+        memset(ip_item,'\0',150);
         memset(arp_item,'\0',150);
         for(int i = 0; i < decoy_count; i++) {
-            //get_mac(mac, addresses[i].ifc);
-            //snprintf(arp_item,149,"sudo arp -s %s %s",addresses[i].ip, mac);
-            snprintf(arp_item,149,"sudo ip addr add %s/24 dev %s",addresses[i].ip, addresses[i].ifc);
+            get_mac(mac, addresses[i].ifc);
+            snprintf(ip_item,149,"sudo ip addr add %s/24 dev %s",addresses[i].ip, addresses[i].ifc);
+            snprintf(arp_item,149,"sudo arp -s %s %s",addresses[i].ip, mac);
+            system(ip_item);
             system(arp_item);
         }
 
@@ -360,9 +363,13 @@ int main(int argc, char **argv) {
     free(interfaces);
 
     char fake_ip[150];
+    char rem_arp[150];
+    memset(rem_arp,'\0',150);
     memset(fake_ip,'\0',150);
     for(int i = 0; i < decoy_count; i++) { // -1 tu bude pokud je soucasti adres i adr interface
+        snprintf(rem_arp,149,"sudo arp -d %s",addresses[i].ip);
         snprintf(fake_ip,149,"sudo ip addr del %s/24 dev %s",addresses[i].ip, addresses[i].ifc);
+        system(rem_arp);
         system(fake_ip);
     }
 
