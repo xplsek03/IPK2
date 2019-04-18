@@ -1,21 +1,13 @@
 // struktury a CRC, prevzato z https://www.tenouk.com/Module43a.html
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <getopt.h>
-#include <string.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-#include <sys/types.h>
 #include <stdbool.h>
 #include <sys/time.h>
 #include <pcap.h>
 
-#define DECOYS 10
-#define PCKT_LEN 8192
+#define DECOYS 2
+#define PCKT_LEN 512
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
 
@@ -105,29 +97,15 @@ struct domain_arguments {
         int min_port;
 };
 
-
-struct tcpheader {
-    unsigned short int tcph_srcport;
-    unsigned short int tcph_destport;
-    unsigned int       tcph_seqnum;
-    unsigned int       tcph_acknum;
-    unsigned char      tcph_reserved:4, tcph_offset:4;
-    // unsigned char tcph_flags;
-    unsigned int
-        tcp_res1:4,     
-        tcph_hlen:4,    
-        tcph_fin:1,      
-        tcph_syn:1,       
-        tcph_rst:1,      
-        tcph_psh:1,     
-        tcph_ack:1,      
-        tcph_urg:1,    
-        tcph_res2:2;
-    unsigned short int tcph_win;
-    unsigned short int tcph_chksum;
-    unsigned short int tcph_urgptr;
+struct pseudoTCPPacket {
+  uint32_t srcAddr;
+  uint32_t dstAddr;
+  uint8_t zero;
+  uint8_t protocol;
+  uint16_t TCP_len;
 };
 
+unsigned short in_cksum_tcp(int src, int dst, unsigned short *addr, int len);
 int rndm(int lower, int upper);
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
 void *interface_sniffer(void *arg);
@@ -140,7 +118,8 @@ void interface_callback(struct interface_callback_arguments *arg, const struct p
 void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *px);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);
-unsigned short csum(unsigned short *buf, int len);
+unsigned short csum(unsigned short *ptr,int nbytes);
 void randomize(struct port *array, int n);
 void *get_mac(char *mac, char *dev);
 unsigned long rndmsleep(unsigned long lower, unsigned long upper);
+unsigned short rndmstr(unsigned short lower, unsigned short upper);

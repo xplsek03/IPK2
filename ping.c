@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <signal.h>
+#include <stdbool.h>
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -25,6 +26,7 @@
 
 extern pcap_t *sniff; // globalni sniffer na ping
 extern bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
+extern bool decoy_ping_succ;
 
 /*********************************************************************************************
  *     
@@ -34,25 +36,6 @@ extern bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pom
 void alarm_handler(int sig) {
     if(alarm_signal)
         pcap_breakloop(sniff);
-}
-
-/*********************************************************************************************
- *     
- * checksum funkce 2
- *
- *********************************************************************************************/
-unsigned short checksum(void *b, int len) {
-    unsigned short *buf = b;
-	unsigned int sum=0;
-	unsigned short result;
-	for ( sum = 0; len > 1; len -= 2 )
-		sum += *buf++;
-	if ( len == 1 )
-		sum += *(unsigned char*)buf;
-	sum = (sum >> 16) + (sum & 0xFFFF);
-	sum += (sum >> 16);
-	result = ~sum;
-	return result;
 }
 
 /*********************************************************************************************
@@ -84,10 +67,11 @@ void *ping_sniffer(void *arg) {
     }
 
     // v pripade ze odpoved enchce prijit, skonci po 3s
-    alarm(3);
+    alarm(4);
     signal(SIGALRM, alarm_handler);
 
     // argumenty co posles do callbacku
+    printf("bool je pred ping loop %i\n",decoy_ping_succ);
     struct ping_callback_arguments *ping_callback_arg = malloc(sizeof(struct ping_callback_arguments));
     if(ping_callback_arg == NULL) {
         fprintf(stderr,"Chyba alokaci pameti.\n");
@@ -109,8 +93,8 @@ void *ping_sniffer(void *arg) {
     retv = pcap_loop(sniff, -1, (pcap_handler)ping_callback, (unsigned char*)ping_callback_arg);
     // z callbacku byl zavolan breakloop
 	if (!alarm_signal && retv == -2) {
+        printf("z callback use vratil -2: nalezeno.\n");
         alarm_signal = false;
-        args.ok = (bool *)true;
 	}
     else if(!alarm_signal && retv < 0) {
     	fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(sniff));
@@ -142,8 +126,9 @@ void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr
         char dstname[16];
         inet_ntop(AF_INET, &ip->daddr, dstname, INET_ADDRSTRLEN);
 
-        // nasels ping reply, skonci
+        // nasels ping reply, skonci. pridej adresu do fake_ips
         if(!strcmp(dstname,arg->ip) && !strcmp(srcname,arg->target)) {
+            decoy_ping_succ = true;
             pcap_breakloop(arg->sniff);
         }
     }
@@ -189,7 +174,7 @@ int ping(struct ping_arguments *ping_arg) {
         pckt.msg[i] = i+'0';
     pckt.msg[i] = 0;
     pckt.hdr.un.echo.sequence = cnt++;
-    pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
+    pckt.hdr.checksum = csum((unsigned short *)&pckt, sizeof(pckt));
 
     for(int i = 0; i < 3; i++) { // 5 odeslani pingu za sebou s intvl=1s
         sleep(1); // pockej chvili na receiver

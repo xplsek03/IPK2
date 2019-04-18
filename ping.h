@@ -14,7 +14,7 @@
 #include <ifaddrs.h>
 #include <stdbool.h>
 
-#define PCKT_LEN 8192
+#define PCKT_LEN 512 // 8192
 #define PACKETSIZE	64
 
 struct packet
@@ -41,5 +41,4 @@ struct ping_callback_arguments {
 void *ping_sniffer(void *arg);
 void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 int ping(struct ping_arguments *ping_arg);
-unsigned short checksum(void *b, int len);
 void alarm_handler(int sig);

@@ -16,6 +16,7 @@ pthread_mutex_t mutex_queue_remove = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 
+bool decoy_ping_succ;
 struct queue *global_queue;
 pcap_t *sniff; // globalni sniffer na ping
 bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
@@ -192,7 +193,7 @@ int main(int argc, char **argv) {
     target.sin_port = htons(1337);
 
     // zalozeni TCP socketu
-    int client = socket(AF_INET, SOCK_RAW, IPPROTO_TCP); // SOCKET POUZE NA TCP
+    int client = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); // SOCKET POUZE NA TCP
     if (client < 0)  
         fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
@@ -261,12 +262,13 @@ int main(int argc, char **argv) {
         memset(mac,'\0',18);
         memset(arp_item,'\0',150);
         for(int i = 0; i < decoy_count; i++) {
-            get_mac(mac, addresses[i].ifc);
-            snprintf(arp_item,149,"sudo arp -s %s %s",addresses[i].ip, mac);
+            //get_mac(mac, addresses[i].ifc);
+            //snprintf(arp_item,149,"sudo arp -s %s %s",addresses[i].ip, mac);
+            snprintf(arp_item,149,"sudo ip addr add %s/24 dev %s",addresses[i].ip, addresses[i].ifc);
             system(arp_item);
         }
 
-        // dopln seznam adres o adresy rozhrani
+       /* // dopln seznam adres o adresy rozhrani
         if(DECOYS != decoy_count + 1 + interfaces_count)
             addresses = realloc(addresses, sizeof(struct single_address)*(interfaces_count+1+decoy_count));
 
@@ -278,16 +280,13 @@ int main(int argc, char **argv) {
                 strcpy(addresses[decoy_count].ifc,interfaces[i].name);
                 decoy_count++;
             }
-        }
+        }*/
+
     }
     else {
-        fprintf(stderr,"Host neexistuje nebo je nedostupny.\n");
+        fprintf(stderr,"Host neexistuje nebo je nedostupny..\n");
         return 1;
     }
-
-    /*printf("--ADRESY--\n");
-    for(int i = 0; i < decoy_count; i++)
-        printf("%s %s\n",addresses[i].ip,addresses[i].ifc);*/
 
     // https://stackoverflow.com/questions/6127503/shuffle-array-in-c
     randomize(pt_arr, pt_arr_size);
@@ -359,6 +358,14 @@ int main(int argc, char **argv) {
     free(pt_arr);
     free(global_queue);
     free(interfaces);
+
+    char fake_ip[150];
+    memset(fake_ip,'\0',150);
+    for(int i = 0; i < decoy_count; i++) { // -1 tu bude pokud je soucasti adres i adr interface
+        snprintf(fake_ip,149,"sudo ip addr del %s/24 dev %s",addresses[i].ip, addresses[i].ifc);
+        system(fake_ip);
+    }
+
     free(addresses);
     return 0;
 

@@ -1,2 +1,2 @@
-sudo valgrind -v --track-origins=yes ./scanner -pt 75-100 -pu 67 81.19.8.132
+sudo valgrind -v --track-origins=yes ./scanner -pt 75-85 -pu 67 195.113.224.36
 sudo macchanger -b -r eth0
