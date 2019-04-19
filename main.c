@@ -23,11 +23,10 @@ pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
 bool decoy_ping_succ; // urceni zda ping cileny na decoy domenu prosel
 
+struct port *pu_arr; // globalni udp list
 struct single_address *addresses; // globalni seznam adres
 struct port *global_list_tcp; // globalni seznam prave zpracovavanych portu
-struct port *global_list_udp; // globalni seznam udp portu
 struct queue *global_queue_tcp; // globalni fronta portu ke zpracovani
-struct queue *global_queue_udp; // globalni fronta portu ke zpracovani
 pcap_t *sniff; // globalni sniffer na ping
 bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
 
@@ -48,8 +47,8 @@ int main(int argc, char **argv) {
     int hc = 0;
     int ic = 0;
     
-    // pole pro seznam 
-    struct port *pu_arr;
+    // pole pro seznam
+    // global struct port *pu_arr;
     struct port *pt_arr;
     
     // kontrola poctu argumentu
@@ -135,7 +134,6 @@ int main(int argc, char **argv) {
     int pt_arr_size = 0;
     // minimalni porty kvuli prevedeni na pole
     int min_port_pt;
-    int min_port_pu;
     // velikost pole naparsovanych portu
     int size = 0;
 
@@ -245,7 +243,6 @@ int main(int argc, char **argv) {
             }
             size = pu_arr_subst[1].port - pu_arr_subst[0].port +1;
             pu_arr_size = size;
-            min_port_pu = pu_arr_subst[0].port;
             pu_arr = malloc(sizeof(struct port)*size);
             if(pu_arr == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
@@ -292,7 +289,6 @@ int main(int argc, char **argv) {
             pu_arr[0].passed = false;
             size = 1;
             pu_arr_size = 1;
-            min_port_pu = pu_arr[0].port;
         }
         for(int i = 0; i < size; i++) {
             if(pu_arr[i].port > 65535 || pu_arr[i].port < 0) {
@@ -332,7 +328,7 @@ int main(int argc, char **argv) {
     // VYTVOR SEZNAM DECOYS
     ///////////////////////////////////////////////////////////
 
-    bool ping_succ = false; // jestli byl kazdy z pingu ok. BUG asi neni potreba
+    bool ping_succ = false; // jestli byl kazdy z pingu ok
 
     addresses = malloc(sizeof(struct single_address)*DECOYS); // pole decoy ip adres
     if(addresses == NULL) {
@@ -444,56 +440,7 @@ int main(int argc, char **argv) {
     struct xxp_arguments *tcp_loop_arg;
     struct xxp_arguments *udp_loop_arg;
 
-    if(puc) {
-        randomize(pu_arr, pu_arr_size);
-        global_queue_udp = malloc(sizeof(struct queue));
-        global_queue_udp->q = malloc(pu_arr_size * sizeof(struct port *));
-        if(global_queue_udp == NULL) {
-            fprintf(stderr,"Chyba pri alokaci pameti.\n");
-            exit(1);   
-        }
-        if(global_queue_udp->q == NULL) {
-            fprintf(stderr,"Chyba pri alokaci pameti.\n");
-            exit(1);   
-        }
-        global_queue_udp->count = pu_arr_size;
-        global_queue_udp->q = pu_arr;
-        global_queue_udp->front = 0;
-        global_queue_udp->rear = -1;
-
-        global_list_udp = malloc(pu_arr_size * sizeof(struct port));
-        if(global_list_udp == NULL) {
-            fprintf(stderr,"Chyba pri alokaci pameti.\n");
-            exit(1);   
-        }
-        for(int i = 0; i < pu_arr_size; i++) {
-            global_list_udp[i].port = 0;
-            global_list_udp[i].passed = false;
-            global_list_udp[i].count = 0;
-            global_list_udp[i].rst = 0;
-        }
-
-        udp_loop_arg = malloc(sizeof(struct xxp_arguments));
-        if(udp_loop_arg == NULL) {
-            fprintf(stderr,"Chyba pri alokaci pameti.\n");
-            exit(1);        
-        }
-        memset(udp_loop_arg->ifc,'\0',20);
-        strcpy(udp_loop_arg->ifc,addresses[0].ifc);
-        memset(udp_loop_arg->target_address,'\0',16);
-        strcpy(udp_loop_arg->target_address,host);
-        udp_loop_arg->port_count = pu_arr_size;
-        udp_loop_arg->decoy_count = decoy_count;
-        udp_loop_arg->client = client_udp;
-        udp_loop_arg->min_port = min_port_pu;
-        udp_loop_arg->xxp = false; // true = tcp, false = udp
-
-        if (pthread_create(&udp_loop, NULL, xxp_looper, (void *)udp_loop_arg)) {
-            fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
-            exit(1);
-        } 
-    }
-    if(ptc) {
+    if(ptc) { // tcp
         randomize(pt_arr, pt_arr_size);
         global_queue_tcp = malloc(sizeof(struct queue));
         global_queue_tcp->q = malloc(pt_arr_size * sizeof(struct port *));
@@ -532,24 +479,59 @@ int main(int argc, char **argv) {
         memset(tcp_loop_arg->target_address,'\0',16);
         strcpy(tcp_loop_arg->target_address,host);
         tcp_loop_arg->port_count = pt_arr_size;
-        tcp_loop_arg->decoy_count = decoy_count;
+
+        if(decoy_count == 1)
+            tcp_loop_arg->decoy_count = decoy_count;
+        else
+            tcp_loop_arg->decoy_count = decoy_count - 1; 
+
         tcp_loop_arg->client = client_tcp;
         tcp_loop_arg->min_port = min_port_pt;
-        tcp_loop_arg->xxp = true; // true = tcp, false = udp
 
         if (pthread_create(&tcp_loop, NULL, xxp_looper, (void *)tcp_loop_arg)) {
             fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
             exit(1);
         } 
-    }  
+    } 
+
+    if(decoy_count == 1) { // na samotny udp scan potrebujeme jednu adresu, posledni z adres. musi dobehnout tcp scan napred pokud je jen jedna.
+        pthread_join(tcp_loop, NULL); 
+        free(tcp_loop_arg);
+        free(global_list_tcp);
+    }
+
+    if(puc) { // udp
+        randomize(pu_arr, pu_arr_size);
+
+        udp_loop_arg = malloc(sizeof(struct xxp_arguments));
+        if(udp_loop_arg == NULL) {
+            fprintf(stderr,"Chyba pri alokaci pameti.\n");
+            exit(1);        
+        }
+        memset(udp_loop_arg->ifc,'\0',20);
+        strcpy(udp_loop_arg->ifc,addresses[0].ifc);
+        memset(udp_loop_arg->target_address,'\0',16);
+        strcpy(udp_loop_arg->target_address,host);
+        udp_loop_arg->client = client_udp;
+        udp_loop_arg->port_count = pu_arr_size;
+        udp_loop_arg->decoy_count = decoy_count;
+
+        printf("vytvarim obo looper.\n");
+        if (pthread_create(&udp_loop, NULL, obo_looper, (void *)udp_loop_arg)) {
+            fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+            exit(1);
+        } 
+    } 
+
+    if(decoy_count != 1 && ptc) {
+        pthread_join(tcp_loop, NULL); 
+        free(tcp_loop_arg);
+        free(global_list_tcp);
+    }
 
     if(puc) {
         pthread_join(udp_loop, NULL);
         free(udp_loop_arg);
-    }
-    if(ptc) {
-        pthread_join(tcp_loop, NULL); 
-        free(tcp_loop_arg);
     }
 
     ///////////////////////////////////////////////////////////
@@ -559,7 +541,6 @@ int main(int argc, char **argv) {
     pcap_close(sniff);
     free(pt_arr);
     free(global_queue_tcp);
-    free(global_queue_udp);
     free(interfaces);
 
     char fake_ip[150];

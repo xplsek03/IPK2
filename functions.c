@@ -9,6 +9,7 @@
 #include <string.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <netinet/ether.h>
 #include <netinet/ip_icmp.h>
 #include <sys/types.h>
@@ -27,6 +28,10 @@
 
 #define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 
+// cekani mezi odesilanim paketu z jedne domeny
+#define MIN_WAITING 100000
+#define MAX_WAITING 1000000
+
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
@@ -40,9 +45,8 @@ extern pthread_mutex_t mutex_queue_remove;
 extern pthread_mutex_t mutex_queue_insert;
 // globalni fronta portu
 extern struct queue *global_queue_tcp;
-extern struct queue *global_queue_udp;
 extern struct port *global_list_tcp;
-extern struct port *global_list_udp;
+extern struct port *pu_arr;
 // jestli prosel ping na rozhrani
 extern bool decoy_ping_succ;
 // globalni seznam adres
@@ -200,6 +204,157 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
 
 /*********************************************************************************************
  *     
+ *   obo sniffer co zachycuje postupne odpovedi na udp datagramy
+ *
+ *********************************************************************************************/
+void *obo_sniffer(void *arg)
+{
+
+    struct obo_sniffer_arguments *args = (struct obo_sniffer_arguments *)arg;
+
+    char errbuf[PCAP_ERRBUF_SIZE]; /* Error string */
+    bpf_u_int32 mask;              /* Our netmask */
+    bpf_u_int32 net;               /* Our IP */
+    struct pcap_pkthdr header;     /* The header that pcap gives us */
+    const unsigned char *packet;   /* The actual packet */
+
+    if (pcap_lookupnet(args->ifc, &net, &mask, errbuf) == -1)
+    {
+        fprintf(stderr, "Couldn't get netmask for device %s: %s\n", args->ifc, errbuf);
+        net = 0;
+        mask = 0;
+    }
+    pcap_t *ifc_sniff = pcap_open_live(args->ifc, BUFSIZ, 1, 1000, errbuf); // 1514, 4000
+    if (ifc_sniff == NULL)
+    {
+        fprintf(stderr, "Couldn't open device %s: %s\n", args->ifc, errbuf);
+        exit(1);
+    }
+    int retv;
+
+    // argumenty pro interface callback
+    struct obo_callback_arguments *obo_callback_arg = malloc(sizeof(struct obo_callback_arguments));
+    if (obo_callback_arg == NULL)
+    {
+        fprintf(stderr, "Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    obo_callback_arg->end_of_evangelion = malloc(sizeof(bool *));
+    if (obo_callback_arg->end_of_evangelion == NULL)
+    {
+        fprintf(stderr, "Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    obo_callback_arg->sniff = malloc(sizeof(pcap_t *));
+    if (obo_callback_arg->sniff == NULL)
+    {
+        fprintf(stderr, "Chyba alokaci pameti.\n");
+        exit(1);
+    }
+    memset(obo_callback_arg->target, '\0', 16);
+    strcpy(obo_callback_arg->target, args->target);
+    obo_callback_arg->end_of_evangelion = args->end_of_evangelion;
+    obo_callback_arg->sniff = ifc_sniff;
+    obo_callback_arg->response_received = args->response_received;
+    obo_callback_arg->decoy_count = args->decoy_count;
+
+    retv = pcap_loop(ifc_sniff, -1, (pcap_handler)obo_callback, (unsigned char *)obo_callback_arg);
+    // z callbacku byl zavolan breakloop
+    if (retv != -2 && retv < 0)
+    {
+        fprintf(stderr, "cannot get raw packet: %s\n", pcap_geterr(ifc_sniff));
+        exit(1);
+    }
+
+    pcap_close(ifc_sniff);
+    
+    return NULL;
+}
+
+/*********************************************************************************************
+ *     
+ *   odeslani udp datagramu z jedne domeny konkretniho interface
+ *
+ *********************************************************************************************/
+void send_udp(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
+
+    char *data;
+    char data_rand[40] = "Z toho stringu se generuji nahodna data";
+    data_rand[rndmstr(0,39)] = '\0';
+    
+    //Ethernet header + IP header + UDP header + data
+    char packet[PCKT_LEN];
+    //Pseudo UDP header to calculate the TCP header's checksum
+    struct pseudoUDPPacket pUDPPacket;
+    //Pseudo UDP Header + UDP Header + data
+    char *pseudo_packet;
+    struct sockaddr_in din;
+    din.sin_family = AF_INET;
+    din.sin_port = htons(target_port);
+    din.sin_addr.s_addr = inet_addr(target_address);
+
+    int one = 1;
+    if (setsockopt(client, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+        fprintf(stderr, "setsockopt() error.\n");
+        exit(1);
+    }
+
+    //Allocate mem for ip and tcp headers and zero the allocation
+    memset(packet, 0, sizeof(packet));
+    struct iphdr *ip = (struct iphdr *) packet;
+    struct udphdr *udp = (struct udphdr *) (packet + sizeof(struct iphdr));
+    data = (char *)(packet + sizeof(struct iphdr) + sizeof(struct udphdr));
+    strcpy(data,data_rand);
+
+    ip->ihl = 5;
+    ip->version = 4;
+    ip->tos = 0;
+    ip->tot_len = sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data);    /* no payload */
+    ip->id = htons(54321);   /* the value doesn't matter here */
+    ip->frag_off = 0x00;
+    ip->ttl = 0xFF;
+    ip->protocol = IPPROTO_UDP; //TCP protocol
+    ip->check = 0;      /* set it to 0 before computing the actual checksum later */
+    ip->saddr = inet_addr(spoofed_address);/* SYN's can be blindly spoofed */
+    ip->daddr = inet_addr(target_address);
+    //Now we can calculate the check sum for the IP header check field
+    ip->check = csum((unsigned short *) packet, ip->tot_len);
+
+    udp->uh_sum = 0;
+    udp->uh_dport = htons(target_port);
+    udp->uh_sport = htons(spoofed_port);
+    udp->uh_ulen = htons(sizeof(udp) + strlen(data)); // nemelo by tu byt sizeof udphdr? mozna bug
+
+    //Now we can calculate the checksum for the UDP header
+    pUDPPacket.srcAddr = inet_addr(spoofed_address); //32 bit format of source address
+    pUDPPacket.dstAddr = inet_addr(target_address); //32 bit format of source address
+    pUDPPacket.zero = 0; //8 bit always zero
+    pUDPPacket.protocol = IPPROTO_UDP; //8 bit TCP protocol
+    pUDPPacket.UDP_len = htons(sizeof(struct udphdr) + strlen(data)); // 16 bit length of TCP header
+
+    //Populate the pseudo packet
+    pseudo_packet = (char *) malloc((int) (sizeof(struct pseudoUDPPacket) + sizeof(struct udphdr) + strlen(data)));
+    memset(pseudo_packet, 0, sizeof(struct pseudoUDPPacket) + sizeof(struct udphdr) + strlen(data));
+
+    //Copy pseudo header
+    memcpy(pseudo_packet, (char *) &pUDPPacket, sizeof(struct pseudoUDPPacket));
+
+    //Copy udp header + data to fake UDP header for checksum
+    memcpy(pseudo_packet + sizeof(struct pseudoUDPPacket), udp, sizeof(struct udphdr) + strlen(data));
+
+    //Set the TCP header's check field
+    udp->uh_sum = (csum((unsigned short *) pseudo_packet, (int) (sizeof(struct pseudoUDPPacket) + 
+          sizeof(struct udphdr) +  strlen(data))));
+
+    if (sendto(client, packet, ip->tot_len, 0, (struct sockaddr *)&din, sizeof(din)) < 0)
+    {
+        fprintf(stderr, "Chyba pri odesilani dat pres socket. %s\n",strerror(errno));
+        exit(1);
+    }
+}
+
+/*********************************************************************************************
+ *     
  *   sniffer co zachycuje na konkretnim rozhrani pakety jdouci na jeho konkretni rozhrani
  *
  *********************************************************************************************/
@@ -283,8 +438,7 @@ void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *
     {
 
         struct ether_header* eth;
-        struct iphdr* ip;
-        struct tcphdr* tcp;
+        struct iphdr *ip;
 
 	    packet += sizeof(struct ether_header);
         ip = (struct iphdr*)packet;
@@ -302,13 +456,11 @@ void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *
                 if (!strcmp(dstname, addresses[i].ip))
                 { // jestli je cilova adresa v poli lokalnich adres
 
-                    //printf("--PAKET--\n");
 
                     // start analyzy obsahu paketu
-                    if (ip->protocol == 6)
-                    { // je to tcp, takze RST/SYN/SYNACK
+                    if (ip->protocol == 6) { // tcp
 
-                        tcp = (struct tcphdr*)(packet+ ip->ihl * 4);
+                        struct tcphdr *tcp = (struct tcphdr*)(packet+ ip->ihl * 4);
 
                         if (tcp->th_flags & TH_SYN)
                         { // SYN i ACK SYN
@@ -332,7 +484,50 @@ void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *
                             }
                         }
                     }
-                    break;
+                    break; // skonci
+                }
+            }
+        }
+    }
+    else
+        pcap_breakloop(arg->sniff);
+}
+
+/*********************************************************************************************
+ *     
+ *   callback obo snifferu, hleda vhodna ICMP a nastavuje response_received pro obo looper
+ *
+ *********************************************************************************************/
+void obo_callback(struct obo_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet)
+{
+
+    arg = (struct obo_callback_arguments *)arg;
+
+    // jeste neni konec
+    if (!(*arg->end_of_evangelion))
+    {
+
+        struct ether_header* eth;
+        struct iphdr *ip;
+
+	    packet += sizeof(struct ether_header);
+        ip = (struct iphdr*)packet;
+
+        char srcname[16];
+        inet_ntop(AF_INET, &ip->saddr, srcname, INET_ADDRSTRLEN);
+
+        if (!strcmp(srcname, arg->target))
+        {
+            char dstname[16];
+            inet_ntop(AF_INET, &ip->daddr, dstname, INET_ADDRSTRLEN);
+
+            if (!strcmp(dstname, addresses[arg->decoy_count-1].ip))
+            {
+                // start analyzy obsahu paketu
+                if (ip->protocol == 1) { // tcp
+                    struct icmphdr *icmp = (struct icmphdr*)(packet + ip->ihl * 4);
+                    if(icmp->type == 3 && icmp->code == 3)
+                        (*arg->response_received) = true;
                 }
             }
         }
@@ -386,10 +581,8 @@ struct single_interface *getInterface(int *interfaces_count)
                 exit(1);
             }
 
-            if (!strcmp(host, "127.0.0.1"))
-            { // localhosst skip. BUG: dalsi adresy
+            if (host[0] == '1' && host[1] == '2' && host[2] == '7')
                 continue;
-            }
 
             // napln konkretni rozhrani
             memset(interfaces[*interfaces_count].mask, '\0', 16);
@@ -634,6 +827,7 @@ void *xxp_looper(void *arg)
     xxp_sniff_arg->end_of_evangelion = &komm_susser_todd;
     xxp_sniff_arg->min_port = args->min_port;
     xxp_sniff_arg->port_count = args->port_count;
+    // tohle je kvuli posledni adrese, pouziva se jen na udp. Pokud je jen jedna adresa udp se provede az po ukonceni tcp..
     xxp_sniff_arg->decoy_count = args->decoy_count;
 
     // vytvor argumenty interface handleru
@@ -652,7 +846,6 @@ void *xxp_looper(void *arg)
     xxp_handler_arg->xxp_killer = &xxp_killer;
     xxp_handler_arg->port_count = args->port_count;
     xxp_handler_arg->local_counter = &local_counter;
-    xxp_handler_arg->xxp = args->xxp;
 
     // vytvor port sniffer a nahraj do nej argumenty
     if (pthread_create(&xxp_sniff, NULL, xxp_sniffer, (void *)xxp_sniff_arg))
@@ -703,7 +896,6 @@ void *xxp_looper(void *arg)
         memset(domain_arg->ip, '\0', 16);
         strcpy(domain_arg->ip, addresses[i].ip);
         domain_arg->end_of_evangelion = &komm_susser_todd;
-        domain_arg->xxp = args->xxp;
         domain_arg->port_count = args->port_count;
 
         pthread_create(&domain[c++], NULL, domain_loop, (void *)domain_arg);
@@ -716,18 +908,11 @@ void *xxp_looper(void *arg)
     {
         sleep(5);
 
-        if(args->xxp) { // tcp
-            if (xxp_killer && queue_isEmpty(global_queue_tcp->count))
-            {
-                break;
-            }
+        if (xxp_killer && queue_isEmpty(global_queue_tcp->count))
+        {
+            break;
         }
-        else { // udp
-            if (xxp_killer && queue_isEmpty(global_queue_udp->count))
-            {
-                break;
-            }    
-        }
+
     }
     komm_susser_todd = true; // ukonci sniffer
 
@@ -737,6 +922,77 @@ void *xxp_looper(void *arg)
 
     // pockej na port sniffer
     pthread_join(xxp_sniff, NULL);
+
+    return NULL;
+}
+/*********************************************************************************************
+ *     
+ * obo looper pro odesilani udp po jednom portu
+ *
+ *********************************************************************************************/
+void *obo_looper(void *arg)
+{
+    pthread_t obo_sniff;
+    struct xxp_arguments *args = (struct xxp_arguments *)arg;
+
+    // zapne to interface, zacne konec snifferu
+    bool komm_susser_todd = false;
+
+    // zda byla obdrzena odpoved na udp datagram ve snifferu
+    bool response_received;
+
+    // vytvor argumenty interface snifferu
+    struct obo_sniffer_arguments *obo_sniff_arg = malloc(sizeof(struct obo_sniffer_arguments));
+    if (obo_sniff_arg == NULL)
+    {
+        fprintf(stderr, "Chyba pri alokaci pameti.\n");
+        exit(1);
+    }
+    obo_sniff_arg->end_of_evangelion = malloc(sizeof(bool *));
+    if (obo_sniff_arg->end_of_evangelion == NULL)
+    {
+        fprintf(stderr, "Chyba pri alokaci pameti.\n");
+        exit(1);
+    }
+    memset(obo_sniff_arg->ifc, '\0', 20);
+    strcpy(obo_sniff_arg->ifc, args->ifc);
+    memset(obo_sniff_arg->target, '\0', 16);
+    strcpy(obo_sniff_arg->target, args->target_address);
+    obo_sniff_arg->end_of_evangelion = &komm_susser_todd;
+    obo_sniff_arg->decoy_count = args->decoy_count;
+    obo_sniff_arg->response_received = &response_received;
+
+    // vytvor port sniffer a nahraj do nej argumenty
+    if (pthread_create(&obo_sniff, NULL, obo_sniffer, (void *)obo_sniff_arg))
+    {
+        fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
+        exit(1);
+    }
+    printf("zacina odesilani na vsechny porty.\n");
+    // odesli na vsechny porty postupne udp datagram a cekej na odpoved od callbacku jeslti to doslo
+    for(int i = 0; i < args->port_count; i++) {
+        printf("posilam na udp port pu_arr i %i.\n",pu_arr[i].port);
+        response_received = false;
+        for(int j = 0; j < 2; j++) {
+            printf("odesilam paket..\n");
+            send_syn(rndm(PORT_RANGE_START, PORT_RANGE_END), pu_arr[i].port, addresses[args->decoy_count-1].ip, args->target_address, args->client);
+            usleep(rndmsleep(500000,1000000));
+            if(response_received) {
+                printf("obdrzel odpoved..\n");
+                printf("UDP PORT %i CLOSED\n",pu_arr[i].port);
+                break;
+            }
+        }
+        if(!response_received) {
+            printf("obdrzel hovno..\n");
+            printf("UDP PORT %i OPEN | FILTERED\n",pu_arr[i].port);            
+        }
+    }
+
+    komm_susser_todd = true; // ukonci sniffer
+
+    // pockej na port sniffer
+    pthread_join(obo_sniff, NULL);
 
     return NULL;
 }
@@ -777,81 +1033,41 @@ void *xxp_handler(void *arg)
         gettimeofday(&timestamp, NULL);
         for (int i = 0; i < args->port_count; i++)
         {
-            if(args->xxp) { // tcp
-
-                if (global_list_tcp[i].port != 0 && ((timestamp.tv_sec - global_list_tcp[i].time.tv_sec) >= SLEEP_TIME))
-                {
-                    if (global_list_tcp[i].passed)
-                    { // aktivni port | zavreny port
-                        if (global_list_tcp[i].rst > 0)
-                        { // dejme tomu ze je port zavreny, a server se nas nesnazi obejit poslanim RST
-                            printf("TCP PORT %i CLOSED\n", global_list_tcp[i].port);
-                            global_list_tcp[i].port = 0;
-                            (*args->local_counter)--;
-                        }
-                        else {
-                            printf("TCP PORT %i OPEN\n", global_list_tcp[i].port);
-                            global_list_tcp[i].port = 0;
-                            (*args->local_counter)--;
-                        }
+            if (global_list_tcp[i].port != 0 && ((timestamp.tv_sec - global_list_tcp[i].time.tv_sec) >= SLEEP_TIME))
+            {
+                if (global_list_tcp[i].passed)
+                { // aktivni port | zavreny port
+                    if (global_list_tcp[i].rst > 0)
+                    { // dejme tomu ze je port zavreny, a server se nas nesnazi obejit poslanim RST
+                        printf("TCP PORT %i CLOSED\n", global_list_tcp[i].port);
+                        global_list_tcp[i].port = 0;
+                        (*args->local_counter)--;
                     }
-                    else
-                    { // neaktivni port
-                        if (global_list_tcp[i].count < 2)
-                        { // posli ho zpet do fronty
-                            (global_list_tcp[i].count)++;
-                            queue_insert(global_list_tcp[i], &(global_queue_tcp->rear), args->port_count, global_queue_tcp->q, &(global_queue_tcp->count));
-                            global_list_tcp[i].port = 0;
-                            (*args->local_counter)--;
-                        }
-                        else
-                        {
-                            // pri nejakem pokusu napriklad nevratil nic
-                            printf("TCP PORT %i FILTERED\n", global_list_tcp[i].port);
-                            global_list_tcp[i].port = 0;
-                            (*args->local_counter)--;
-                            
-                        }
+                    else {
+                        printf("TCP PORT %i OPEN\n", global_list_tcp[i].port);
+                        global_list_tcp[i].port = 0;
+                        (*args->local_counter)--;
                     }
                 }
-            }
-            else { // udp
-                if (global_list_udp[i].port != 0 && ((timestamp.tv_sec - global_list_udp[i].time.tv_sec) >= SLEEP_TIME))
-                {
-                    if (global_list_udp[i].passed)
-                    { // aktivni port
-                        printf("UDP PORT %i OPEN\n", global_list_udp[i].port);
-                        global_list_udp[i].port = 0;
+                else
+                { // neaktivni port
+                    if (global_list_tcp[i].count < 2)
+                    { // posli ho zpet do fronty
+                        (global_list_tcp[i].count)++;
+                        queue_insert(global_list_tcp[i], &(global_queue_tcp->rear), args->port_count, global_queue_tcp->q, &(global_queue_tcp->count));
+                        global_list_tcp[i].port = 0;
                         (*args->local_counter)--;
                     }
                     else
-                    { // neaktivni port
-                        if (global_list_udp[i].count < 2)
-                        { // posli ho zpet do fronty
-                            (global_list_udp[i].count)++;
-                            queue_insert(global_list_udp[i], &(global_queue_udp->rear), args->port_count, global_queue_udp->q, &(global_queue_udp->count));
-                            global_list_udp[i].port = 0;
-                            (*args->local_counter)--;
-                        }
-                        else
-                        {
-                            if (global_list_udp[i].rst > 2)
-                            {
-                                printf("UDP PORT %i CLOSED\n", global_list_udp[i].port);
-                                global_list_udp[i].port = 0;
-                                (*args->local_counter)--;
-                            }
-                            else
-                            { // pri nejakem pokusu napriklad nevratil nic
-                                printf("UDP PORT %i FILTERED\n", global_list_tcp[i].port);
-                                global_list_udp[i].port = 0;
-                                (*args->local_counter)--;
-                            }
-                        }
+                    {
+                        // pri nejakem pokusu napriklad nevratil nic
+                        printf("TCP PORT %i FILTERED\n", global_list_tcp[i].port);
+                        global_list_tcp[i].port = 0;
+                        (*args->local_counter)--;
+                        
                     }
                 }
             }
-
         }
     }
     (*args->xxp_killer) = true; // timhle rikas interface aby vypnulo sniffer
@@ -876,38 +1092,27 @@ void *domain_loop(void *arg)
     // mel by to vypnout handler
     while (!(*args->end_of_evangelion))
     {
-
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
-        if(args->xxp) { // tcp
+        // z fronty vezmi port
+        if (!queue_isEmpty(global_queue_tcp->count))
+        {
+            struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
 
-            // z fronty vezmi port
-            if (!queue_isEmpty(global_queue_tcp->count))
-            {
-                struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
-
-                //printf("beru z globalni fronty: %i\n",worked_port.port);
-                //printf("args min port je: %i\n",args->min_port);
-                //printf("pridavam do listu: %i\n",global_list_tcp[worked_port.port - args->min_port].port);
-
-                // zpracovany port dej do local listu
-                global_list_tcp[worked_port.port - args->min_port].count = worked_port.count;
-                global_list_tcp[worked_port.port - args->min_port].port = worked_port.port;
-                global_list_tcp[worked_port.port - args->min_port].passed = worked_port.passed;
-                gettimeofday(&timestamp, NULL);
-                global_list_tcp[worked_port.port - args->min_port].time.tv_sec = timestamp.tv_sec;
-                // zvys citatc lokalniho seznamu
-                (*args->local_counter)++;
-                // odesli na port
-                //printf("odesilas syn na port. %s %s\n",args->ip, args->target_address);
-                send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
-            }
-
+            // zpracovany port dej do local listu
+            global_list_tcp[worked_port.port - args->min_port].count = worked_port.count;
+            global_list_tcp[worked_port.port - args->min_port].port = worked_port.port;
+            global_list_tcp[worked_port.port - args->min_port].passed = worked_port.passed;
+            gettimeofday(&timestamp, NULL);
+            global_list_tcp[worked_port.port - args->min_port].time.tv_sec = timestamp.tv_sec;
+            // zvys citatc lokalniho seznamu
+            (*args->local_counter)++;
+            // odesli na port
+            send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
         }
-
-        // cekej mezi 0.5-1 s
-        usleep(rndmsleep(500000, 1000000));
+        // cekej mezi 0.1-1 s
+        usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
     }
 
     return NULL;

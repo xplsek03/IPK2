@@ -49,7 +49,6 @@ struct xxp_arguments {
     char target_address[16];
     int min_port;
     int port_count;
-    bool xxp;
 };
 
 struct xxp_sniffer_arguments {
@@ -58,13 +57,19 @@ struct xxp_sniffer_arguments {
     bool *end_of_evangelion;
     int min_port;
     int port_count;
-    bool xxp;
     int decoy_count;
+};
+
+struct obo_sniffer_arguments {
+    char ifc[20];
+    char target[16];
+    bool *end_of_evangelion;
+    int decoy_count;
+    bool *response_received;
 };
 
 struct xxp_handler_arguments {
     bool *xxp_killer;
-    bool xxp;
     int port_count;
     int *local_counter;
 };
@@ -85,6 +90,14 @@ struct xxp_callback_arguments {
     int decoy_count;
 };
 
+struct obo_callback_arguments {
+    char target[16];
+    bool *end_of_evangelion;
+    bool *response_received;
+    pcap_t *sniff;
+    int decoy_count;
+};
+
 struct domain_arguments {
         int client;
         char target_address[16]; 
@@ -92,7 +105,6 @@ struct domain_arguments {
         bool *end_of_evangelion;
         int min_port;
         int *local_counter;
-        bool xxp;
         int port_count;
 };
 
@@ -104,16 +116,28 @@ struct pseudoTCPPacket {
   uint16_t TCP_len;
 };
 
+struct pseudoUDPPacket {
+  uint32_t srcAddr;
+  uint32_t dstAddr;
+  uint8_t zero;
+  uint8_t protocol;
+  uint16_t UDP_len;
+};
+
 unsigned short in_cksum_tcp(int src, int dst, unsigned short *addr, int len);
 int rndm(int lower, int upper);
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
+void send_udp(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
 void *xxp_sniffer(void *arg);
+void *obo_sniffer(void *arg);
 struct single_interface *getInterface(int *interfaces_count);
 void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, char *target, struct sockaddr_in *target_struct);
 void *xxp_looper(void* arg);
+void *obo_looper(void *arg);
 void *xxp_handler(void* arg);
 void *domain_loop(void *arg);
 void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
+void obo_callback(struct obo_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *px);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);
