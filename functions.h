@@ -6,7 +6,7 @@
 #include <sys/time.h>
 #include <pcap.h>
 
-#define DECOYS 2
+#define DECOYS 2 // pouze suda cisla!
 #define PCKT_LEN 512
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
@@ -37,37 +37,36 @@ struct port {
 struct single_address {
     char ifc[20];
     char ip[16];
-    unsigned short cidr;
+    unsigned short cider;
 };
 
 typedef char local_address[16];
 
-struct interface_arguments {
+struct xxp_arguments {
     char ifc[20];
     int client;
-    struct single_address *addresses;
     int decoy_count;
     char target_address[16];
-    int pt_arr_size;
     int min_port;
+    int port_count;
+    bool xxp;
 };
 
-struct interface_sniffer_arguments {
+struct xxp_sniffer_arguments {
     char ifc[20];
     char target[16];
     bool *end_of_evangelion;
-    local_address local_addresses[DECOYS+1];
-    int local_address_counter;
-    int pt_arr_size;
-    struct port **local_list;
     int min_port;
+    int port_count;
+    bool xxp;
+    int decoy_count;
 };
 
-struct interface_handler_arguments {
-    struct port **local_list;
-    bool *interface_killer;
-    int *local_list_counter;
-    int pt_arr_size;
+struct xxp_handler_arguments {
+    bool *xxp_killer;
+    bool xxp;
+    int port_count;
+    int *local_counter;
 };
 
 struct single_interface {
@@ -77,25 +76,24 @@ struct single_interface {
     bool usable;
 };
 
-struct interface_callback_arguments {
+struct xxp_callback_arguments {
     char target[16];
     bool *end_of_evangelion;
     pcap_t *sniff;
-    local_address local_addresses[DECOYS+1];
-    int local_address_counter;
-    struct port **local_list;
     int min_port;
+    int port_count;
+    int decoy_count;
 };
 
 struct domain_arguments {
         int client;
         char target_address[16]; 
         char ip[16];
-        int pt_arr_size;
-        struct port **local_list;
-        int *local_list_counter;
         bool *end_of_evangelion;
         int min_port;
+        int *local_counter;
+        bool xxp;
+        int port_count;
 };
 
 struct pseudoTCPPacket {
@@ -109,13 +107,13 @@ struct pseudoTCPPacket {
 unsigned short in_cksum_tcp(int src, int dst, unsigned short *addr, int len);
 int rndm(int lower, int upper);
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client);
-void *interface_sniffer(void *arg);
+void *xxp_sniffer(void *arg);
 struct single_interface *getInterface(int *interfaces_count);
-void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, int client, char *target, struct sockaddr_in *target_struct);
-void *interface_looper(void* arg);
-void *interface_handler(void* arg);
+void generate_decoy_ips(struct single_interface interface, int *passed_interfaces, struct single_address *addresses, int *decoy_count, char *target, struct sockaddr_in *target_struct);
+void *xxp_looper(void* arg);
+void *xxp_handler(void* arg);
 void *domain_loop(void *arg);
-void interface_callback(struct interface_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
+void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet);
 void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *px);
 int getCharCount(char *str, char z);
 int checkArg(char *argument);
@@ -124,4 +122,4 @@ void randomize(struct port *array, int n);
 void *get_mac(char *mac, char *dev);
 unsigned long rndmsleep(unsigned long lower, unsigned long upper);
 unsigned short rndmstr(unsigned short lower, unsigned short upper);
-static unsigned short cidr(char* ipAddress);
+unsigned short cidr(char* ipAddress);

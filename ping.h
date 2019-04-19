@@ -27,7 +27,6 @@ struct ping_arguments {
     char ip[16];
     char target[16];
     struct sockaddr_in *target_struct;
-    int client;
     bool *ok;
     char ifc[20];
 };
