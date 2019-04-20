@@ -1108,7 +1108,7 @@ void *domain_loop(void *arg)
     while (!(*args->end_of_evangelion))
     {
 
-        change_mac(args->ifc);
+        change_mac(args->ifc); // menit kazdejch pet sekund
 
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
@@ -1161,12 +1161,11 @@ void randomize(struct port *array, int n)
  * zkontroluj argumenty programu
  *
  *********************************************************************************************/
-int checkArg(char *argument)
+int checkArg(char *argument, int len)
 {
-
     int range = 0; // -
     int col = 0;   // ,
-    for (int i = 0; i < strlen(argument); i++)
+    for (int i = 0; i < len; i++)
     {
         if (isdigit(argument[i]))
         {
@@ -1176,12 +1175,13 @@ int checkArg(char *argument)
         {
             range++;
         }
-        else if (argument[i] == ',')
+        else if (argument[i] == ',') {
             col++;
+        }
         else
             return 0;
     }
-    if (range > 1 || !isdigit(argument[strlen(argument) - 1]) || (range > 0 && col > 0))
+    if (range > 1 || !isdigit(argument[len - 1]) || (range > 0 && col > 0))
     {
         return 0;
     }
@@ -1190,8 +1190,9 @@ int checkArg(char *argument)
     {
         return 1; // je tam jedna pomlcka
     }
-    else if (col > 1)
+    else if (col >= 1) {
         return 2; // jsou tam carky
+    }
     else
         return 3; // jsou tam jen cisla
 }
@@ -1201,13 +1202,14 @@ int checkArg(char *argument)
  * parsovani argumentu programu
  *
  *********************************************************************************************/
-int getCharCount(char *str, char z)
+int getCharCount(char *str, char z, int len)
 {
     int c = 0;
-    for (int i = 0; i < strlen(str); i++)
+    for (int i = 0; i < len; i++)
     {
-        if (str[i] == z)
+        if (str[i] == z) {
             c++;
+        }
     }
     return c;
 }
@@ -1308,7 +1310,7 @@ void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *p
     }
     else if (ret_px == 2)
     { // hledas ,
-        int l = getCharCount(px, ',');
+        int l = getCharCount(px, ',',strlen(px));
         *px_arr = malloc(sizeof(struct port) * (l + 1));
         size = l + 1;
         if (px_arr == NULL)

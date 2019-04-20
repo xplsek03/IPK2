@@ -114,14 +114,14 @@ int main(int argc, char **argv) {
     int ret_pu;
     // co jsou oba argumenty zac, jestli range, vycet..
     if(puc) {
-        ret_pu = checkArg(pu);
+        ret_pu = checkArg(pu,strlen(pu));
         if(!ret_pu) {
             fprintf(stderr,"Spatne zadane argumenty programu.\n");
             return 1;
         }
     }
     if(ptc) {
-        ret_pt = checkArg(pt);
+        ret_pt = checkArg(pt,strlen(pt));
         if(!ret_pt) {
             fprintf(stderr,"Spatne zadane argumenty programu.\n");
             return 1;
@@ -160,6 +160,7 @@ int main(int argc, char **argv) {
                 p = strtok(NULL, "-");
                 i++;
             }
+
             size = pt_arr_subst[1].port - pt_arr_subst[0].port +1;
             pt_arr_size = size;
             min_port_pt = pt_arr_subst[0].port;
@@ -177,7 +178,7 @@ int main(int argc, char **argv) {
             free(pt_arr_subst);
         }
         else if(ret_pt == 2) { // hledas ,
-            int l = getCharCount(pt,',');
+            int l = getCharCount(pt,',',strlen(pt));
             pt_arr = malloc(sizeof(struct port) * (l+1));
             size = l+1;
             if(pt_arr == NULL) {
@@ -235,7 +236,7 @@ int main(int argc, char **argv) {
             }
             int i = 0;
             char *end;
-            char *p = strtok(pt, "-");
+            char *p = strtok(pu, "-");
             while(p) {
                 pu_arr_subst[i].port = (int)strtol(p, &end, 10);
                 p = strtok(NULL, "-");
@@ -257,7 +258,7 @@ int main(int argc, char **argv) {
             free(pu_arr_subst);
         }
         else if(ret_pu == 2) { // hledas ,
-            int l = getCharCount(pu,',');
+            int l = getCharCount(pu,',',strlen(pu));
             pu_arr = malloc(sizeof(struct port) * (l+1));
             size = l+1;
             if(pu_arr == NULL) {
@@ -302,6 +303,16 @@ int main(int argc, char **argv) {
             fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     }
+    /*
+    printf("debug:\n");
+    printf("size pt: %i\n",pt_arr_size);
+    printf("size pu: %i\n",pu_arr_size);
+    for(int i = 0; i < pt_arr_size; i++)
+        printf("%i\n",pt_arr[i].port);
+    printf("\n");
+    for(int i = 0; i < pu_arr_size; i++)
+        printf("%i\n",pu_arr[i].port);
+    exit(0);*/
 
     ///////////////////////////////////////////////////////////
     // ZPRACUJ TARGET
@@ -516,7 +527,6 @@ int main(int argc, char **argv) {
         udp_loop_arg->port_count = pu_arr_size;
         udp_loop_arg->decoy_count = decoy_count;
 
-        printf("vytvarim obo looper.\n");
         if (pthread_create(&udp_loop, NULL, obo_looper, (void *)udp_loop_arg)) {
             fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
             exit(1);
