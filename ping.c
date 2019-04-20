@@ -140,8 +140,7 @@ int ping(struct ping_arguments *ping_arg) {
     }
 
     const int val = 255;
-	int i;
-    int cnt = 1;
+    int i, cnt = 1;
 	struct packet pckt;
 
 	int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
@@ -164,7 +163,7 @@ int ping(struct ping_arguments *ping_arg) {
     pckt.hdr.checksum = csum((unsigned short *)&pckt, sizeof(pckt));
 
     for(int i = 0; i < 3; i++) { // 3 odeslani pingu za sebou s intervalem 1s
-        usleep(1);
+        sleep(1);
         if (sendto(icmp_socket, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_arg->target_struct, sizeof(*ping_arg->target_struct)) < 0) {
             fprintf(stderr,"Chyba pri odesilani pingu pres socket. R: %s\n",strerror(errno));
             exit(1);
