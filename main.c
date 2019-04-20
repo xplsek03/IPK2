@@ -31,7 +31,10 @@ pcap_t *sniff; // globalni sniffer na ping
 bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
 
 int main(int argc, char **argv) {
-    srand(time(0)); // zamichej cislama
+
+    time_t rtime;
+
+    srand(time(&rtime)); // zamichej cislama
 
     ///////////////////////////////////////////////////////////
     // OBECNE ZPRACOVANI ARGUMENTU
@@ -303,16 +306,6 @@ int main(int argc, char **argv) {
             fprintf(stderr,"Chyba pri vytvareni socketu.\n"); 
 
     }
-    /*
-    printf("debug:\n");
-    printf("size pt: %i\n",pt_arr_size);
-    printf("size pu: %i\n",pu_arr_size);
-    for(int i = 0; i < pt_arr_size; i++)
-        printf("%i\n",pt_arr[i].port);
-    printf("\n");
-    for(int i = 0; i < pu_arr_size; i++)
-        printf("%i\n",pu_arr[i].port);
-    exit(0);*/
 
     ///////////////////////////////////////////////////////////
     // ZPRACUJ TARGET

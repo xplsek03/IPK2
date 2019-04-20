@@ -30,7 +30,7 @@
 
 // cekani mezi odesilanim paketu z jedne domeny
 #define MIN_WAITING 100000
-#define MAX_WAITING 1000000
+#define MAX_WAITING 500000
 
 #ifndef FUNCTIONS_H
 #include "functions.h"
@@ -116,10 +116,12 @@ void get_mac(char *mac, char *dev) {
 
 void change_mac(char *dev) {
 
-    struct ifreq ifr = {0}; // jinak to hodi chybu
+    struct ifreq ifr = {0};
     int s;
     char mac[18];
-    srand(time(0)); 
+    time_t rtime;
+
+    srand(time(&rtime)); 
     sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
  
     sscanf(mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &ifr.ifr_hwaddr.sa_data[0], &ifr.ifr_hwaddr.sa_data[1],
@@ -134,6 +136,7 @@ void change_mac(char *dev) {
     ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
     if(ioctl(s, SIOCSIFHWADDR, &ifr) == -1)
         fprintf(stderr,"Mac adresu neslo zmenit.\n");
+    printf("* new mac: %s on %s\n",mac, dev);
 }
 
 /*********************************************************************************************
@@ -710,6 +713,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
             addresses[*decoy_count].cider = cidr(interface.mask);
             memset(addresses[*decoy_count].ifc, '\0', 10);
             strcpy(addresses[*decoy_count].ifc, interface.name);
+            printf("* %s decoy ip %s\n",addresses[*decoy_count].ifc,addresses[*decoy_count].ip);
 
             (*decoy_count)++; // globalni iterator decoy adres
 
@@ -995,12 +999,12 @@ void *obo_looper(void *arg)
             send_udp(rndm(PORT_RANGE_START, PORT_RANGE_END), pu_arr[i].port, addresses[args->decoy_count-1].ip, args->target_address, args->client);
             usleep(rndmsleep(500000,1000000));
             if(response_received) {
-                printf("UDP PORT %i CLOSED\n",pu_arr[i].port);
+                printf("UDP\t%i\tCLOSED\n",pu_arr[i].port);
                 break;
             }
         }
         if(!response_received) {
-            printf("UDP PORT %i OPEN | FILTERED\n",pu_arr[i].port);            
+            printf("UDP\t%i\tOPEN|FILTERED\n",pu_arr[i].port);            
         }
     }
 
@@ -1054,12 +1058,12 @@ void *xxp_handler(void *arg)
                 { // aktivni port | zavreny port
                     if (global_list_tcp[i].rst > 0)
                     { // dejme tomu ze je port zavreny, a server se nas nesnazi obejit poslanim RST
-                        printf("TCP PORT %i CLOSED\n", global_list_tcp[i].port);
+                        printf("TCP\t%i\tCLOSED\n", global_list_tcp[i].port);
                         global_list_tcp[i].port = 0;
                         (*args->local_counter)--;
                     }
                     else {
-                        printf("TCP PORT %i OPEN\n", global_list_tcp[i].port);
+                        printf("TCP\t%i\tOPEN\n", global_list_tcp[i].port);
                         global_list_tcp[i].port = 0;
                         (*args->local_counter)--;
                     }
@@ -1076,7 +1080,7 @@ void *xxp_handler(void *arg)
                     else
                     {
                         // pri nejakem pokusu napriklad nevratil nic
-                        printf("TCP PORT %i FILTERED\n", global_list_tcp[i].port);
+                        printf("TCP\t%i\tFILTERED\n", global_list_tcp[i].port);
                         global_list_tcp[i].port = 0;
                         (*args->local_counter)--;
                         
@@ -1107,15 +1111,18 @@ void *domain_loop(void *arg)
     // mel by to vypnout handler
     while (!(*args->end_of_evangelion))
     {
-
-        change_mac(args->ifc); // menit kazdejch pet sekund
-
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 
         // z fronty vezmi port
         if (!queue_isEmpty(global_queue_tcp->count))
         {
+
+            // zmen mac adresu
+            int t = rndmstr(1,10000);
+            if(t % 128 == 0) {
+                change_mac(args->ifc);
+            }
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
 
             // zpracovany port dej do local listu
