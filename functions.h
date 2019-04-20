@@ -6,7 +6,7 @@
 #include <sys/time.h>
 #include <pcap.h>
 
-#define DECOYS 2 // pouze suda cisla!
+#define DECOYS 6 // pouze suda cisla!
 #define PCKT_LEN 512
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
@@ -35,7 +35,7 @@ struct port {
 };
 
 struct single_address {
-    char ifc[20];
+    char ifc[10];
     char ip[16];
     unsigned short cider;
 };
@@ -43,7 +43,7 @@ struct single_address {
 typedef char local_address[16];
 
 struct xxp_arguments {
-    char ifc[20];
+    char ifc[10];
     int client;
     int decoy_count;
     char target_address[16];
@@ -52,7 +52,7 @@ struct xxp_arguments {
 };
 
 struct xxp_sniffer_arguments {
-    char ifc[20];
+    char ifc[10];
     char target[16];
     bool *end_of_evangelion;
     int min_port;
@@ -61,7 +61,7 @@ struct xxp_sniffer_arguments {
 };
 
 struct obo_sniffer_arguments {
-    char ifc[20];
+    char ifc[10];
     char target[16];
     bool *end_of_evangelion;
     int decoy_count;
@@ -75,7 +75,7 @@ struct xxp_handler_arguments {
 };
 
 struct single_interface {
-    char name[20];
+    char name[10];
     char ip[16];
     char mask[16];
     bool usable;
@@ -106,6 +106,7 @@ struct domain_arguments {
         int min_port;
         int *local_counter;
         int port_count;
+        char ifc[10];
 };
 
 struct pseudoTCPPacket {
@@ -143,7 +144,8 @@ int getCharCount(char *str, char z);
 int checkArg(char *argument);
 unsigned short csum(unsigned short *ptr,int nbytes);
 void randomize(struct port *array, int n);
-void *get_mac(char *mac, char *dev);
+void get_mac(char *mac, char *dev);
+void change_mac(char *dev);
 unsigned long rndmsleep(unsigned long lower, unsigned long upper);
 unsigned short rndmstr(unsigned short lower, unsigned short upper);
 unsigned short cidr(char* ipAddress);

@@ -85,7 +85,7 @@ unsigned short csum(unsigned short *ptr,int nbytes) {
  *   ziskej mac adresu // https://www.stev.org/post/clinuxgetmacaddressfrominterface
  *
  *********************************************************************************************/
-void *get_mac(char *mac, char *dev) {
+void get_mac(char *mac, char *dev) {
     int sock = socket(PF_INET, SOCK_DGRAM, 0);
     struct ifreq req;
     int i = 0;
@@ -106,6 +106,34 @@ void *get_mac(char *mac, char *dev) {
     }
     snprintf(mac, 18, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X", (unsigned char)req.ifr_hwaddr.sa_data[0], (unsigned char)req.ifr_hwaddr.sa_data[1], (unsigned char)req.ifr_hwaddr.sa_data[2], (unsigned char)req.ifr_hwaddr.sa_data[3], (unsigned char)req.ifr_hwaddr.sa_data[4], (unsigned char)req.ifr_hwaddr.sa_data[5]);
     close(sock);
+}
+
+/*********************************************************************************************
+ *     
+ *   vygeneruj novou mac adresu
+ *
+ *********************************************************************************************/
+
+void change_mac(char *dev) {
+
+    struct ifreq ifr = {0}; // jinak to hodi chybu
+    int s;
+    char mac[18];
+    srand(time(0)); 
+    sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
+ 
+    sscanf(mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &ifr.ifr_hwaddr.sa_data[0], &ifr.ifr_hwaddr.sa_data[1],
+    &ifr.ifr_hwaddr.sa_data[2], &ifr.ifr_hwaddr.sa_data[3], &ifr.ifr_hwaddr.sa_data[4], &ifr.ifr_hwaddr.sa_data[5]);
+ 
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if(s == -1) {
+        fprintf(stderr,"Mac adresu neslo zmenit.\n");
+        return;
+    } 
+    strcpy(ifr.ifr_name, dev);
+    ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+    if(ioctl(s, SIOCSIFHWADDR, &ifr) == -1)
+        fprintf(stderr,"Mac adresu neslo zmenit.\n");
 }
 
 /*********************************************************************************************
@@ -279,8 +307,6 @@ void *obo_sniffer(void *arg)
 void send_udp(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
 
     char *data;
-    char data_rand[40] = "Z toho stringu se generuji nahodna data";
-    data_rand[rndmstr(0,39)] = '\0';
     
     //Ethernet header + IP header + UDP header + data
     char packet[PCKT_LEN];
@@ -304,7 +330,7 @@ void send_udp(int spoofed_port, int target_port, char *spoofed_address, char *ta
     struct iphdr *ip = (struct iphdr *) packet;
     struct udphdr *udp = (struct udphdr *) (packet + sizeof(struct iphdr));
     data = (char *)(packet + sizeof(struct iphdr) + sizeof(struct udphdr));
-    strcpy(data,data_rand);
+    strcpy(data,"");
 
     ip->ihl = 5;
     ip->version = 4;
@@ -464,15 +490,9 @@ void xxp_callback(struct xxp_callback_arguments *arg, const struct pcap_pkthdr *
 
                         if (tcp->th_flags & TH_SYN)
                         { // SYN i ACK SYN
-                            //printf("nalezen paket s syn/ack syn\n");
                             unsigned short srcport = ntohs(tcp->th_sport);
-                            //printf("port: %i\n",srcport);
                             if (global_list_tcp[srcport - arg->min_port].port != 0) {
                                 global_list_tcp[srcport - arg->min_port].passed = true;
-                                //printf("v local seznamu neni na pozici 0, paket s portem na passed.\n");
-                            }
-                            else {
-                               // printf("v seznamu byla 0.\n");
                             }
                         }
                         else if (tcp->th_flags & TH_RST)
@@ -586,7 +606,7 @@ struct single_interface *getInterface(int *interfaces_count)
 
             // napln konkretni rozhrani
             memset(interfaces[*interfaces_count].mask, '\0', 16);
-            memset(interfaces[*interfaces_count].name, '\0', 20);
+            memset(interfaces[*interfaces_count].name, '\0', 10);
             memset(interfaces[*interfaces_count].ip, '\0', 16);
             strcpy(interfaces[*interfaces_count].mask, mask);
             strcpy(interfaces[*interfaces_count].ip, host);
@@ -660,7 +680,7 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
             exit(1);
         }
         memset(ping_arg->target, '\0', 16);
-        memset(ping_arg->ifc, '\0', 20);
+        memset(ping_arg->ifc, '\0', 10);
         memset(ping_arg->ip, '\0', 16);
         strcpy(ping_arg->target, decoy);
         strcpy(ping_arg->ip, interface.ip);
@@ -684,17 +704,15 @@ void generate_decoy_ips(struct single_interface interface, int *passed_interface
         }
         else
         {
-            //if(*decoy_count < DECOYS)
-            //{
+
             memset(addresses[*decoy_count].ip, '\0', 16);
             strcpy(addresses[*decoy_count].ip, decoy);
             addresses[*decoy_count].cider = cidr(interface.mask);
-            memset(addresses[*decoy_count].ifc, '\0', 20);
+            memset(addresses[*decoy_count].ifc, '\0', 10);
             strcpy(addresses[*decoy_count].ifc, interface.name);
-            //printf("do addresses pridan decoy: %s %s\n",addresses[*decoy_count].ip, addresses[*decoy_count].ifc);
 
             (*decoy_count)++; // globalni iterator decoy adres
-            //}
+
         }
     }
 }
@@ -820,7 +838,7 @@ void *xxp_looper(void *arg)
         fprintf(stderr, "Chyba pri alokaci pameti.\n");
         exit(1);
     }
-    memset(xxp_sniff_arg->ifc, '\0', 20);
+    memset(xxp_sniff_arg->ifc, '\0', 10);
     strcpy(xxp_sniff_arg->ifc, args->ifc);
     memset(xxp_sniff_arg->target, '\0', 16);
     strcpy(xxp_sniff_arg->target, args->target_address);
@@ -897,6 +915,8 @@ void *xxp_looper(void *arg)
         strcpy(domain_arg->ip, addresses[i].ip);
         domain_arg->end_of_evangelion = &komm_susser_todd;
         domain_arg->port_count = args->port_count;
+        memset(domain_arg->ifc, '\0', 10);
+        strcpy(domain_arg->ifc, args->ifc);
 
         pthread_create(&domain[c++], NULL, domain_loop, (void *)domain_arg);
     }
@@ -954,7 +974,7 @@ void *obo_looper(void *arg)
         fprintf(stderr, "Chyba pri alokaci pameti.\n");
         exit(1);
     }
-    memset(obo_sniff_arg->ifc, '\0', 20);
+    memset(obo_sniff_arg->ifc, '\0', 10);
     strcpy(obo_sniff_arg->ifc, args->ifc);
     memset(obo_sniff_arg->target, '\0', 16);
     strcpy(obo_sniff_arg->target, args->target_address);
@@ -968,23 +988,18 @@ void *obo_looper(void *arg)
         fprintf(stderr, "Chyba pri vytvareni vlakna.\n");
         exit(1);
     }
-    printf("zacina odesilani na vsechny porty.\n");
     // odesli na vsechny porty postupne udp datagram a cekej na odpoved od callbacku jeslti to doslo
     for(int i = 0; i < args->port_count; i++) {
-        printf("posilam na udp port pu_arr i %i.\n",pu_arr[i].port);
         response_received = false;
         for(int j = 0; j < 2; j++) {
-            printf("odesilam paket..\n");
-            send_syn(rndm(PORT_RANGE_START, PORT_RANGE_END), pu_arr[i].port, addresses[args->decoy_count-1].ip, args->target_address, args->client);
+            send_udp(rndm(PORT_RANGE_START, PORT_RANGE_END), pu_arr[i].port, addresses[args->decoy_count-1].ip, args->target_address, args->client);
             usleep(rndmsleep(500000,1000000));
             if(response_received) {
-                printf("obdrzel odpoved..\n");
                 printf("UDP PORT %i CLOSED\n",pu_arr[i].port);
                 break;
             }
         }
         if(!response_received) {
-            printf("obdrzel hovno..\n");
             printf("UDP PORT %i OPEN | FILTERED\n",pu_arr[i].port);            
         }
     }
@@ -1092,6 +1107,9 @@ void *domain_loop(void *arg)
     // mel by to vypnout handler
     while (!(*args->end_of_evangelion))
     {
+
+        change_mac(args->ifc);
+
         // spoofed port ze kteryho odesles SYN
         spoofed_port = rndm(PORT_RANGE_START, PORT_RANGE_END);
 

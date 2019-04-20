@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
         }
         ping_arg->ok = malloc(sizeof(bool*));
         memset(ping_arg->target,'\0',16);
-        memset(ping_arg->ifc,'\0',20);
+        memset(ping_arg->ifc,'\0',10);
         memset(ping_arg->ip,'\0',16);
         strcpy(ping_arg->target,host);
         strcpy(ping_arg->ip,interfaces[i].ip);
@@ -411,7 +411,7 @@ int main(int argc, char **argv) {
                 memset(addresses[0].ip, '\0', 16);
                 strcpy(addresses[0].ip, interfaces[i].ip);
                 addresses[0].cider = cidr(interfaces[i].mask);
-                memset(addresses[0].ifc, '\0', 20);
+                memset(addresses[0].ifc, '\0', 10);
                 strcpy(addresses[0].ifc, interfaces[i].name); 
                 break;              
             }
@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
             fprintf(stderr,"Chyba pri alokaci pameti.\n");
             exit(1);        
         }
-        memset(tcp_loop_arg->ifc,'\0',20);
+        memset(tcp_loop_arg->ifc,'\0',10);
         strcpy(tcp_loop_arg->ifc,addresses[0].ifc);
         memset(tcp_loop_arg->target_address,'\0',16);
         strcpy(tcp_loop_arg->target_address,host);
@@ -508,7 +508,7 @@ int main(int argc, char **argv) {
             fprintf(stderr,"Chyba pri alokaci pameti.\n");
             exit(1);        
         }
-        memset(udp_loop_arg->ifc,'\0',20);
+        memset(udp_loop_arg->ifc,'\0',10);
         strcpy(udp_loop_arg->ifc,addresses[0].ifc);
         memset(udp_loop_arg->target_address,'\0',16);
         strcpy(udp_loop_arg->target_address,host);
