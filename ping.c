@@ -17,6 +17,9 @@
 #include <signal.h>
 #include <stdbool.h>
 
+#ifndef SETTINGS_H
+#include "settings.h"
+#endif
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
@@ -24,13 +27,10 @@
 #include "ping.h"
 #endif
 
-extern pcap_t *sniff; // globalni sniffer na ping
-extern bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
-extern bool decoy_ping_succ;
-
 /*********************************************************************************************
  *     
  * alarm, v pripade necinnosti zastavi ping sniffer (hledani volnych domen)
+ * @sig = id signalu
  *
  *********************************************************************************************/
 void alarm_handler(int sig) {
@@ -40,7 +40,8 @@ void alarm_handler(int sig) {
 
 /*********************************************************************************************
  *     
- * sniffer na ping
+ * ping sniffer
+ * pcap sniffer, ktery se spusti na konkretnim rozhrani. Pouze pro ping
  *
  *********************************************************************************************/
 void *ping_sniffer(void *arg) {
@@ -66,7 +67,7 @@ void *ping_sniffer(void *arg) {
         exit(1);
     }
 
-    // v pripade ze odpoved enchce prijit, skonci po 3s
+    // v pripade ze odpoved enchce prijit, skonci po 4s
     alarm(4);
     signal(SIGALRM, alarm_handler);
 
@@ -106,7 +107,7 @@ void *ping_sniffer(void *arg) {
 
 /*********************************************************************************************
  *     
- * callback ping snifferu
+ * callback ping snifferu - pouze pro ping
  *
  *********************************************************************************************/
 void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr *header, const unsigned char *packet) {
@@ -137,8 +138,9 @@ void ping_callback(struct ping_callback_arguments *arg, const struct pcap_pkthdr
 
 /*********************************************************************************************
  *     
- * rizeni jednoho pingu
+ * rizeni jednoho konkretniho pingu
  * https://www.cs.utah.edu/~swalton/listings/sockets/programs/part4/chap18/myping.c
+ * ret: 0 pri neuspechu, 1 pri uspesnem pingu
  *
  *********************************************************************************************/
 int ping(struct ping_arguments *ping_arg) {
@@ -151,8 +153,9 @@ int ping(struct ping_arguments *ping_arg) {
         exit(1);
     }
 
-    const int val=255;
-	int i, cnt=1;
+    const int val = 255;
+	int i;
+    int cnt = 1;
 	struct packet pckt;
 
 	int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
@@ -174,8 +177,8 @@ int ping(struct ping_arguments *ping_arg) {
     pckt.hdr.un.echo.sequence = cnt++;
     pckt.hdr.checksum = csum((unsigned short *)&pckt, sizeof(pckt));
 
-    for(int i = 0; i < 3; i++) { // 5 odeslani pingu za sebou s intvl=1s
-        sleep(1); // pockej chvili na receiver
+    for(int i = 0; i < 3; i++) { // 3 odeslani pingu za sebou s intervalem 1s
+        usleep(1);
         if (sendto(icmp_socket, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_arg->target_struct, sizeof(*ping_arg->target_struct)) < 0) {
             fprintf(stderr,"Chyba pri odesilani pingu pres socket. R: %s\n",strerror(errno));
             exit(1);

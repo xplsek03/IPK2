@@ -11,24 +11,31 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <pcap.h>
-#define RAND_MAX 2147483647
+
+#ifndef SETTINGS_H
+#include "settings.h"
+#endif
 #ifndef FUNCTIONS_H
 #include "functions.h"
 #endif
 #ifndef PING_H
 #include "ping.h"
 #endif
+
+// globalbni nastaveni
 pthread_mutex_t mutex_queue_remove = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_size = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_queue_insert = PTHREAD_MUTEX_INITIALIZER;
-bool decoy_ping_succ; // urceni zda ping cileny na decoy domenu prosel
-
-struct port *pu_arr; // globalni udp list
-struct single_address *addresses; // globalni seznam adres
-struct port *global_list_tcp; // globalni seznam prave zpracovavanych portu
-struct queue *global_queue_tcp; // globalni fronta portu ke zpracovani
-pcap_t *sniff; // globalni sniffer na ping
-bool alarm_signal; // globalni alarm co signalizuje, jestli se vypnul pomoci casu
+// globalni fronta portu
+struct queue *global_queue_tcp;
+struct port *global_list_tcp;
+struct port *pu_arr;
+// globalni seznam adres
+struct single_address *addresses;
+ // globalni sniffer na ping
+pcap_t *sniff;
+bool alarm_signal; // globalni alarm co signalizuje, jestli se ping vypnul pomoci casu
+bool decoy_ping_succ; // uspech pingu na domenu
 
 int main(int argc, char **argv) {
 

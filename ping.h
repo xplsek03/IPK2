@@ -14,8 +14,7 @@
 #include <ifaddrs.h>
 #include <stdbool.h>
 
-#define PCKT_LEN 512 // 8192
-#define PACKETSIZE	64
+#include "settings.h"
 
 struct packet
 {
