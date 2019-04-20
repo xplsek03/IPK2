@@ -1,25 +1,10 @@
-// struktury a CRC, prevzato z https://www.tenouk.com/Module43a.html
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <getopt.h>
-#include <string.h>
-#include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ether.h>
-#include <netinet/ip_icmp.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
 #include <pcap.h>
 #include <ifaddrs.h>
 #include <ctype.h>
 #include <netdb.h>
-#include <linux/if_link.h>
-#include <sys/time.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <limits.h>
@@ -1103,8 +1088,8 @@ void *domain_loop(void *arg)
         {
 
             // zmen mac adresu
-            int t = rndmstr(1,10000);
-            if(t % 128 == 0) {
+            int t = rndmstr(1,20);
+            if(t % 20 == 0) {
                 change_mac(args->ifc);
             }
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));

@@ -1,17 +1,10 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <getopt.h>
 #include <string.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
-#include <sys/types.h>
 #include <arpa/inet.h>
 #include <pcap.h>
-#include <ifaddrs.h>
 #include <stdbool.h>
 
 #include "settings.h"

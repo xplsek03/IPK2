@@ -1,9 +1,5 @@
-// struktury a CRC, prevzato z https://www.tenouk.com/Module43a.html
-
 #include <netinet/ip.h>
-#include <netinet/tcp.h>
 #include <stdbool.h>
-#include <sys/time.h>
 #include <pcap.h>
 
 #define DECOYS 6 // pouze suda cisla!
