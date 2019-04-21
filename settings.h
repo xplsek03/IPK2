@@ -6,7 +6,7 @@
 #define MAX_WAITING 250000
 #define RAND_MAX 2147483647
 
-#define DECOYS 2 // nenulova hodnota. Pokud 1: pouzije se ip rozhrani
+#define DECOYS 5 // nenulova hodnota. Pokud 1: pouzije se ip rozhrani
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
 

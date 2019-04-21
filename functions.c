@@ -51,7 +51,8 @@ unsigned short csum(unsigned short *ptr,int nbytes) {
 
 /*********************************************************************************************
  *     
- *   ziskej mac adresu // https://www.stev.org/post/clinuxgetmacaddressfrominterface
+ *   ziskej mac adresu 
+ *   https://www.stev.org/post/clinuxgetmacaddressfrominterface
  *
  *********************************************************************************************/
 void get_mac(char *mac, char *dev) {
@@ -89,8 +90,6 @@ void change_mac(char *dev) {
     int s;
     char mac[18];
     time_t rtime;
-
-    //sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
     char val[16] = "0123456789abcdef";
 
     sprintf(mac,"%c8:%c%c:%c%c:%c%c:%c%c:%c%c",val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)]);
@@ -1096,10 +1095,12 @@ void *domain_loop(void *arg)
         if (!queue_isEmpty(global_queue_tcp->count))
         {
 
-            // zmen mac adresu. pojede pouze na ethernetech, na wlan se musi rozhrani vypnout nejprve!
-            int i = rndmstr(1,3);
-            if(i == 2)
-                change_mac(args->ifc);
+            if(MACSPOOF) {
+                // zmen mac adresu. pojede pouze na ethernetech, na wlan se musi rozhrani vypnout nejprve!
+                int i = rndmstr(1,3);
+                if(i == 2)
+                    change_mac(args->ifc);
+            }
 
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
 
