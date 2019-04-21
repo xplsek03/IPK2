@@ -53,8 +53,8 @@ void *ping_sniffer(void *arg) {
         exit(1);
     }
 
-    // v pripade ze odpoved enchce prijit, skonci po 4s
-    alarm(4);
+    // v pripade ze odpoved enchce prijit, skonci po 3s
+    alarm(3);
     signal(SIGALRM, alarm_handler);
 
     // argumenty co posles do callbacku
@@ -162,8 +162,8 @@ int ping(struct ping_arguments *ping_arg) {
     pckt.hdr.un.echo.sequence = cnt++;
     pckt.hdr.checksum = csum((unsigned short *)&pckt, sizeof(pckt));
 
-    for(int i = 0; i < 3; i++) { // 3 odeslani pingu za sebou s intervalem 1s
-        sleep(1);
+    for(int i = 0; i < 2; i++) { // 2 odeslani pingu za sebou s intervalem 1s
+        usleep(1000000);
         if (sendto(icmp_socket, &pckt, sizeof(pckt), 0, (struct sockaddr*)ping_arg->target_struct, sizeof(*ping_arg->target_struct)) < 0) {
             fprintf(stderr,"Chyba pri odesilani pingu pres socket. R: %s\n",strerror(errno));
             exit(1);

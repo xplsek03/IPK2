@@ -110,6 +110,7 @@ void change_mac(char *dev) {
 /*********************************************************************************************
  *     
  *   odeslani syn paketu z jedne domeny konkretniho interface
+ *   inspirace v enderunix.org/docs/en/rawipspoof
  *
  *********************************************************************************************/
 void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
@@ -274,6 +275,7 @@ void *obo_sniffer(void *arg)
 /*********************************************************************************************
  *     
  *   odeslani udp datagramu z jedne domeny konkretniho interface
+ *   inspirace v enderunix.org/docs/en/rawipspoof
  *
  *********************************************************************************************/
 void send_udp(int spoofed_port, int target_port, char *spoofed_address, char *target_address, int client) {
@@ -971,7 +973,7 @@ void *obo_looper(void *arg)
         response_received = false;
         for(int j = 0; j < 2; j++) {
             send_udp(rndm(PORT_RANGE_START, PORT_RANGE_END), pu_arr[i].port, addresses[args->decoy_count-1].ip, args->target_address, args->client);
-            usleep(rndmsleep(500000,1000000));
+            usleep(rndmsleep(UDPMINWAIT,UDPMAXWAIT));
             if(response_received) {
                 printf("UDP\t%i\tCLOSED\n",pu_arr[i].port);
                 break;
@@ -1119,7 +1121,6 @@ void *domain_loop(void *arg)
                 usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
             }
         }
-        //usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
     }
     free(args);
 
