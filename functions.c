@@ -105,7 +105,7 @@ void change_mac(char *dev) {
     strcpy(ifr.ifr_name, dev);
     ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
     if(ioctl(s, SIOCSIFHWADDR, &ifr) != -1)
-        printf("* new mac: %s on %s\n",mac, dev);
+        ;//printf("* new mac: %s on %s\n",mac, dev);
 }
 
 /*********************************************************************************************
