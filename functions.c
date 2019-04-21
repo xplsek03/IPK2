@@ -1350,7 +1350,8 @@ void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *p
 /*********************************************************************************************
  *     
  * funkce ke zprocesovani argumentu pt a pu
- *
+ * //https://gist.github.com/jirihnidek/bf7a2363e480491da72301b228b35d5d
+ * 
  *********************************************************************************************/
 char *host_to_ip(const char *host) {
 
