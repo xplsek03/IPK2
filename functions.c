@@ -91,21 +91,22 @@ void change_mac(char *dev) {
     time_t rtime;
 
     srand(time(&rtime)); 
-    sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
- 
+    //sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
+    char val[16] = "0123456789abcdef";
+
+    sprintf(mac,"%c8:%c%c:%c%c:%c%c:%c%c:%c%c",val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)],val[rndmstr(0,15)]);
+   
     sscanf(mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &ifr.ifr_hwaddr.sa_data[0], &ifr.ifr_hwaddr.sa_data[1],
     &ifr.ifr_hwaddr.sa_data[2], &ifr.ifr_hwaddr.sa_data[3], &ifr.ifr_hwaddr.sa_data[4], &ifr.ifr_hwaddr.sa_data[5]);
  
     s = socket(AF_INET, SOCK_DGRAM, 0);
     if(s == -1) {
-        fprintf(stderr,"Mac adresu neslo zmenit.\n");
         return;
     } 
     strcpy(ifr.ifr_name, dev);
     ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
-    if(ioctl(s, SIOCSIFHWADDR, &ifr) == -1)
-        fprintf(stderr,"Mac adresu neslo zmenit.\n");
-    printf("* new mac: %s on %s\n",mac, dev);
+    if(ioctl(s, SIOCSIFHWADDR, &ifr) != -1)
+        printf("* new mac: %s on %s\n",mac, dev);
 }
 
 /*********************************************************************************************
@@ -267,7 +268,9 @@ void *obo_sniffer(void *arg)
     }
 
     pcap_close(ifc_sniff);
-    
+
+    free(obo_callback_arg);
+
     return NULL;
 }
 
@@ -417,6 +420,8 @@ void *xxp_sniffer(void *arg)
     }
 
     pcap_close(ifc_sniff);
+
+    free(xxp_callback_arg);
     
     return NULL;
 }
@@ -916,6 +921,9 @@ void *xxp_looper(void *arg)
     // pockej na port sniffer
     pthread_join(xxp_sniff, NULL);
 
+    free(xxp_sniff_arg);
+    free(xxp_handler_arg);
+
     return NULL;
 }
 /*********************************************************************************************
@@ -981,6 +989,8 @@ void *obo_looper(void *arg)
 
     // pockej na port sniffer
     pthread_join(obo_sniff, NULL);
+
+    free(obo_sniff_arg);
 
     return NULL;
 }
@@ -1087,9 +1097,9 @@ void *domain_loop(void *arg)
         if (!queue_isEmpty(global_queue_tcp->count))
         {
 
-            // zmen mac adresu
-            int t = rndmstr(1,20);
-            if(t % 20 == 0) {
+            // zmen mac adresu. pojede pouze na ethernetech, na wlan se musi rozhrani vypnout nejprve!
+            int t = rndmstr(1,100);
+            if(t % 10 == 0) {
                 change_mac(args->ifc);
             }
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
@@ -1105,9 +1115,9 @@ void *domain_loop(void *arg)
             // odesli na port
             send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
         }
-        // cekej mezi 0.1-1 s
         usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
     }
+    free(args);
 
     return NULL;
 }

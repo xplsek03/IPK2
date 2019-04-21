@@ -2,11 +2,6 @@
 #include <stdbool.h>
 #include <pcap.h>
 
-#define DECOYS 6 // pouze suda cisla!
-#define PCKT_LEN 512
-#define PORT_RANGE_START 50000
-#define PORT_RANGE_END 60000
-
 // globalni fronta portu
 struct queue {
     struct port *q;

@@ -1,10 +1,14 @@
 #define PCKT_LEN 512 // 8192
 #define PACKETSIZE	64
-#define SLEEP_TIME 7 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
+#define SLEEP_TIME 5 // spaci cas mezi jednotlivymi prujezdy handleru na lokalnim seznam portu v interface
 // cekani mezi odesilanim paketu z jedne domeny
-#define MIN_WAITING 100000
-#define MAX_WAITING 500000
+#define MIN_WAITING 50000
+#define MAX_WAITING 250000
 #define RAND_MAX 2147483647
+
+#define DECOYS 5 // nenulove!!
+#define PORT_RANGE_START 50000
+#define PORT_RANGE_END 60000
 
 // mutexy pro globalni frontu portu
 extern pthread_mutex_t mutex_queue_size;

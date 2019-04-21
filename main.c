@@ -136,6 +136,7 @@ int main(int argc, char **argv) {
     int pt_arr_size = 0;
     // minimalni porty kvuli prevedeni na pole
     int min_port_pt;
+    int min_port_pu;
     // velikost pole naparsovanych portu
     int size = 0;
 
@@ -181,9 +182,9 @@ int main(int argc, char **argv) {
         }
         else if(ret_pt == 2) { // hledas ,
             int l = getCharCount(pt,',',strlen(pt));
-            pt_arr = malloc(sizeof(struct port) * (l+1));
+            struct port *pt_arr_subst = malloc(sizeof(struct port) * (l+1));
             size = l+1;
-            if(pt_arr == NULL) {
+            if(pt_arr_subst == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
                 exit(1);
             }
@@ -191,14 +192,36 @@ int main(int argc, char **argv) {
             char *end;
             char *p = strtok(pt, ",");
             while (p) {
-                pt_arr[i].port = (int)strtol(p, &end, 10);
-                pt_arr[i].count = 0;
-                pt_arr[i].passed = false;
-                pt_arr[i].rst = 0;
+                pt_arr_subst[i].port = (int)strtol(p, &end, 10);
+                pt_arr_subst[i].count = 0;
+                pt_arr_subst[i].passed = false;
+                pt_arr_subst[i].rst = 0;
                 p = strtok(NULL, ",");
                 i++;
             }
-            pt_arr_size = size;
+            int max = 0;
+            int min = 65536;
+            for(int j = 0; j < size; j++) {
+                if(pt_arr_subst[i].port > max)
+                    max = pt_arr_subst[j].port;
+            }
+            for(int j = 0; j < size; j++) {
+                if(pt_arr_subst[i].port < min)
+                    min = pt_arr_subst[j].port;
+            }
+            pt_arr_size = max - min + 1;
+            pt_arr = malloc(sizeof(struct port)*pt_arr_size);
+            for(int j = 0; j < pt_arr_size; j++) {
+                pt_arr[j].port = 0;
+                pt_arr[j].count = 0;
+                pt_arr[j].passed = false;
+            }
+
+            for(int j = 0; j < size; j++) {
+                pt_arr[pt_arr_subst[j].port-1].port = pt_arr_subst[j].port;
+            }
+            min_port_pt = min;
+            free(pt_arr_subst);
         }
         else { // vkladas cely cislo do pole
             pt_arr = malloc(sizeof(struct port));
@@ -230,7 +253,7 @@ int main(int argc, char **argv) {
     // ZPRACOVANI ARGUMENTU UDP
     ///////////////////////////////////////////////////////////
     if(puc) {
-        if(ret_pu == 1) { // hledas -
+       if(ret_pu == 1) { // hledas -
             struct port *pu_arr_subst = malloc(sizeof(struct port)*2);
             if(pu_arr_subst == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
@@ -244,8 +267,10 @@ int main(int argc, char **argv) {
                 p = strtok(NULL, "-");
                 i++;
             }
+
             size = pu_arr_subst[1].port - pu_arr_subst[0].port +1;
             pu_arr_size = size;
+            min_port_pu = pu_arr_subst[0].port;
             pu_arr = malloc(sizeof(struct port)*size);
             if(pu_arr == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
@@ -261,9 +286,9 @@ int main(int argc, char **argv) {
         }
         else if(ret_pu == 2) { // hledas ,
             int l = getCharCount(pu,',',strlen(pu));
-            pu_arr = malloc(sizeof(struct port) * (l+1));
+            struct port *pu_arr_subst = malloc(sizeof(struct port) * (l+1));
             size = l+1;
-            if(pu_arr == NULL) {
+            if(pu_arr_subst == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
                 exit(1);
             }
@@ -271,14 +296,36 @@ int main(int argc, char **argv) {
             char *end;
             char *p = strtok(pu, ",");
             while (p) {
-                pu_arr[i].port = (int)strtol(p, &end, 10);
-                pu_arr[i].count = 0;
-                pu_arr[i].passed = false;
-                pu_arr[i].rst = 0;
+                pu_arr_subst[i].port = (int)strtol(p, &end, 10);
+                pu_arr_subst[i].count = 0;
+                pu_arr_subst[i].passed = false;
+                pu_arr_subst[i].rst = 0;
                 p = strtok(NULL, ",");
                 i++;
             }
-            pu_arr_size = size;
+            int max = 0;
+            int min = 65536;
+            for(int j = 0; j < size; j++) {
+                if(pu_arr_subst[i].port > max)
+                    max = pu_arr_subst[j].port;
+            }
+            for(int j = 0; j < size; j++) {
+                if(pu_arr_subst[i].port < min)
+                    min = pu_arr_subst[j].port;
+            }
+            pu_arr_size = max - min + 1;
+            pu_arr = malloc(sizeof(struct port)*pu_arr_size);
+            for(int j = 0; j < pu_arr_size; j++) {
+                pu_arr[j].port = 0;
+                pu_arr[j].count = 0;
+                pu_arr[j].passed = false;
+            }
+
+            for(int j = 0; j < size; j++) {
+                pu_arr[pu_arr_subst[j].port-1].port = pu_arr_subst[j].port;
+            }
+            min_port_pu = min;
+            free(pu_arr_subst);
         }
         else { // vkladas cely cislo do pole
             pu_arr = malloc(sizeof(struct port));
@@ -292,6 +339,7 @@ int main(int argc, char **argv) {
             pu_arr[0].passed = false;
             size = 1;
             pu_arr_size = 1;
+            min_port_pu = pu_arr[0].port;
         }
         for(int i = 0; i < size; i++) {
             if(pu_arr[i].port > 65535 || pu_arr[i].port < 0) {
@@ -384,21 +432,30 @@ int main(int argc, char **argv) {
             generate_decoy_ips(interfaces[i], &passed_interfaces, addresses, &decoy_count, host, &target);
 
             if(decoy_count < DECOYS) { // na rozhrani neni dost volnych adres ke zneuziti
-                if(ic_first) // budes tam nastavovat primarni adresu sveho rozhrani
+                if(ic_first) {// budes tam nastavovat primarni adresu sveho rozhrani
+                    free(ping_arg);
                     break;
+                }
                 else { // hledej dal
                     decoy_count = 0;
+                    free(ping_arg);
                     continue;
                 }
             }
-            else
+            else {
+                free(ping_arg);
                 break;
+            }
         }
         // pokracuj od zacatku - 0 - pokud nenalezeno
         if(ic_first) {
             i = -1;
             ic_first = false;
         }
+
+        free(ping_arg->ok);
+        free(ping_arg->target_struct);
+        free(ping_arg);
     }
     
     if(passed_interfaces == 0)
@@ -541,7 +598,7 @@ int main(int argc, char **argv) {
     ///////////////////////////////////////////////////////////
 
     pcap_close(sniff);
-    free(pt_arr);
+    free(global_queue_tcp->q);
     free(global_queue_tcp);
     free(interfaces);
 
@@ -553,8 +610,12 @@ int main(int argc, char **argv) {
     }
     free(addresses);
 
-    close(client_tcp);
-    close(client_udp);
-
+    if(ptc) {
+        close(client_tcp);
+    }
+    if(puc) {
+        free(pu_arr);
+        close(client_udp);
+    }
     return 0;
 }
