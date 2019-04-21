@@ -6,9 +6,11 @@
 #define MAX_WAITING 250000
 #define RAND_MAX 2147483647
 
-#define DECOYS 2 // nenulove!!
+#define DECOYS 2 // nenulova hodnota. Pokud 1: pouzije se ip rozhrani
 #define PORT_RANGE_START 50000
 #define PORT_RANGE_END 60000
+
+#define MACSPOOF 1 // defualtne zapnuta zmena mac adresy po kazdem odeslani syn paketu na pouzitem rozhrani
 
 // mutexy pro globalni frontu portu
 extern pthread_mutex_t mutex_queue_size;

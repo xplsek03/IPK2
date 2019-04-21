@@ -90,7 +90,6 @@ void change_mac(char *dev) {
     char mac[18];
     time_t rtime;
 
-    srand(time(&rtime)); 
     //sprintf(mac,"88:%s%X:%s%X:%s%X:%s%X:%s%X", (rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256),(rand() % 256) < 16 ? "0" : "", (rand() % 256));
     char val[16] = "0123456789abcdef";
 
@@ -1079,7 +1078,8 @@ void *xxp_handler(void *arg)
  *********************************************************************************************/
 void *domain_loop(void *arg)
 {
-
+    time_t s;
+    srand(time(&s));
     struct timeval timestamp;
     int spoofed_port;
 
@@ -1097,10 +1097,10 @@ void *domain_loop(void *arg)
         {
 
             // zmen mac adresu. pojede pouze na ethernetech, na wlan se musi rozhrani vypnout nejprve!
-            int t = rndmstr(1,100);
-            if(t % 10 == 0) {
+            int i = rndmstr(1,3);
+            if(i == 2)
                 change_mac(args->ifc);
-            }
+
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
 
             // v pripade ze zpracovavam nesouvisly seznam portu: 60, 75, 87 atd..
