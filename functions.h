@@ -140,3 +140,4 @@ void change_mac(char *dev);
 unsigned long rndmsleep(unsigned long lower, unsigned long upper);
 unsigned short rndmstr(unsigned short lower, unsigned short upper);
 unsigned short cidr(char* ipAddress);
+char *host_to_ip(const char *host);

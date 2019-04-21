@@ -152,24 +152,23 @@ void send_syn(int spoofed_port, int target_port, char *spoofed_address, char *ta
     ip->id = htons(54321);   /* the value doesn't matter here */
     ip->frag_off = 0x00;
     ip->ttl = 0xFF;
-    ip->protocol = IPPROTO_TCP; //TCP protocol
-    ip->check = 0;      /* set it to 0 before computing the actual checksum later */
-    ip->saddr = inet_addr(spoofed_address);/* SYN's can be blindly spoofed */
+    ip->protocol = IPPROTO_TCP;
+    ip->check = 0;   
+    ip->saddr = inet_addr(spoofed_address);
     ip->daddr = inet_addr(target_address);
-    //Now we can calculate the check sum for the IP header check field
     ip->check = csum((unsigned short *) packet, ip->tot_len);
 
     tcp->source = htons(spoofed_port);
     tcp->dest = htons(target_port);
-    tcp->seq = rndmsleep(1,ULONG_MAX); // 0x0. nahodna hodnota sekvence
-    tcp->ack_seq = 0x0;/* number, and the ack sequence is 0 in the 1st packet */
-    tcp->doff = 5; //4 bits: 5 x 32-bit words on tcp header
-    tcp->res1 = 0; //4 bits: Not used
-    tcp->urg = 0; //Urgent flag
-    tcp->ack = 0; //Acknownledge
-    tcp->psh = 0; //Push data immediately
-    tcp->rst = 0; //RST flag
-    tcp->syn = 1; //SYN flag
+    tcp->seq = rndmsleep(1,ULONG_MAX); 
+    tcp->ack_seq = 0x0;
+    tcp->doff = 5; 
+    tcp->res1 = 0; 
+    tcp->urg = 0;
+    tcp->ack = 0; 
+    tcp->psh = 0;
+    tcp->rst = 0; 
+    tcp->syn = 1; 
     tcp->fin = 0; //Terminates the connection
     tcp->window = htons(155);//0xFFFF; //16 bit max number of databytes 
     tcp->check = 0; //16 bit check sum. Can't calculate at this point
@@ -1104,18 +1103,22 @@ void *domain_loop(void *arg)
             }
             struct port worked_port = queue_removeData(global_queue_tcp->q, &(global_queue_tcp->front), args->port_count, &(global_queue_tcp->count));
 
-            // zpracovany port dej do local listu
-            global_list_tcp[worked_port.port - args->min_port].count = worked_port.count;
-            global_list_tcp[worked_port.port - args->min_port].port = worked_port.port;
-            global_list_tcp[worked_port.port - args->min_port].passed = worked_port.passed;
-            gettimeofday(&timestamp, NULL);
-            global_list_tcp[worked_port.port - args->min_port].time.tv_sec = timestamp.tv_sec;
-            // zvys citatc lokalniho seznamu
-            (*args->local_counter)++;
-            // odesli na port
-            send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
+            // v pripade ze zpracovavam nesouvisly seznam portu: 60, 75, 87 atd..
+            if(worked_port.port != 0) {
+                // zpracovany port dej do local listu
+                global_list_tcp[worked_port.port - args->min_port].count = worked_port.count;
+                global_list_tcp[worked_port.port - args->min_port].port = worked_port.port;
+                global_list_tcp[worked_port.port - args->min_port].passed = worked_port.passed;
+                gettimeofday(&timestamp, NULL);
+                global_list_tcp[worked_port.port - args->min_port].time.tv_sec = timestamp.tv_sec;
+                // zvys citatc lokalniho seznamu
+                (*args->local_counter)++;
+                // odesli na port
+                send_syn(spoofed_port, worked_port.port, args->ip, args->target_address, args->client);
+                usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
+            }
         }
-        usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
+        //usleep(rndmsleep(MIN_WAITING, MAX_WAITING));
     }
     free(args);
 
@@ -1342,4 +1345,42 @@ void processArgument(int ret_px, struct port **px_arr, int *px_arr_size, char *p
             exit(1);
         }
     }
+}
+
+/*********************************************************************************************
+ *     
+ * funkce ke zprocesovani argumentu pt a pu
+ *
+ *********************************************************************************************/
+char *host_to_ip(const char *host) {
+
+  struct addrinfo hint, *res;
+  char *ip = malloc(sizeof(char) * 16);
+  if(ip == NULL) {
+      fprintf(stderr,"Chyba pri alokaci pameti.\n");
+      exit(1);
+  }
+  void *ptr;
+
+  memset (&hint, 0, sizeof (hint));
+  hint.ai_family = PF_UNSPEC;
+  hint.ai_socktype = SOCK_STREAM;
+  hint.ai_flags |= AI_CANONNAME;
+
+  if (getaddrinfo(host, NULL, &hint, &res) != 0) {
+      fprintf(stderr,"Host neexistuje nebo nelze prevest adresu.\n");
+      exit(1);
+    }
+
+    switch (res->ai_family) {
+    case AF_INET:
+        ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
+        break;
+    case AF_INET6:
+        printf("IPV6 nepodporujeme.\n");
+        exit(1);
+    }
+    
+    inet_ntop (res->ai_family, ptr, ip, 100);
+    return ip;
 }

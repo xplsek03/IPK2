@@ -134,9 +134,8 @@ int main(int argc, char **argv) {
     // celkovy pocet portu
     int pu_arr_size = 0;
     int pt_arr_size = 0;
-    // minimalni porty kvuli prevedeni na pole
+    // minimalni port tcp kvuli prevedeni na mensi 
     int min_port_pt;
-    int min_port_pu;
     // velikost pole naparsovanych portu
     int size = 0;
 
@@ -202,11 +201,11 @@ int main(int argc, char **argv) {
             int max = 0;
             int min = 65536;
             for(int j = 0; j < size; j++) {
-                if(pt_arr_subst[i].port > max)
+                if(pt_arr_subst[j].port > max)
                     max = pt_arr_subst[j].port;
             }
             for(int j = 0; j < size; j++) {
-                if(pt_arr_subst[i].port < min)
+                if(pt_arr_subst[j].port < min)
                     min = pt_arr_subst[j].port;
             }
             pt_arr_size = max - min + 1;
@@ -218,9 +217,10 @@ int main(int argc, char **argv) {
             }
 
             for(int j = 0; j < size; j++) {
-                pt_arr[pt_arr_subst[j].port-1].port = pt_arr_subst[j].port;
+                pt_arr[pt_arr_subst[j].port-min].port = pt_arr_subst[j].port;
             }
             min_port_pt = min;
+
             free(pt_arr_subst);
         }
         else { // vkladas cely cislo do pole
@@ -270,7 +270,6 @@ int main(int argc, char **argv) {
 
             size = pu_arr_subst[1].port - pu_arr_subst[0].port +1;
             pu_arr_size = size;
-            min_port_pu = pu_arr_subst[0].port;
             pu_arr = malloc(sizeof(struct port)*size);
             if(pu_arr == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
@@ -281,14 +280,15 @@ int main(int argc, char **argv) {
                 pu_arr[j].port = pu_arr_subst[0].port + j;
                 pu_arr[j].count = 0;
                 pu_arr[j].passed = false;
+                pu_arr[i].rst = 0;
             }
             free(pu_arr_subst);
         }
         else if(ret_pu == 2) { // hledas ,
             int l = getCharCount(pu,',',strlen(pu));
-            struct port *pu_arr_subst = malloc(sizeof(struct port) * (l+1));
-            size = l+1;
-            if(pu_arr_subst == NULL) {
+            pu_arr_size = l+1;
+            pu_arr = malloc(sizeof(struct port)*pu_arr_size);
+            if(pu_arr == NULL) {
                 fprintf(stderr,"Chyba pri alokaci.\n");
                 exit(1);
             }
@@ -296,36 +296,13 @@ int main(int argc, char **argv) {
             char *end;
             char *p = strtok(pu, ",");
             while (p) {
-                pu_arr_subst[i].port = (int)strtol(p, &end, 10);
-                pu_arr_subst[i].count = 0;
-                pu_arr_subst[i].passed = false;
-                pu_arr_subst[i].rst = 0;
+                pu_arr[i].port = (int)strtol(p, &end, 10);
+                pu_arr[i].count = 0;
+                pu_arr[i].passed = false;
+                pu_arr[i].rst = 0;
                 p = strtok(NULL, ",");
                 i++;
             }
-            int max = 0;
-            int min = 65536;
-            for(int j = 0; j < size; j++) {
-                if(pu_arr_subst[i].port > max)
-                    max = pu_arr_subst[j].port;
-            }
-            for(int j = 0; j < size; j++) {
-                if(pu_arr_subst[i].port < min)
-                    min = pu_arr_subst[j].port;
-            }
-            pu_arr_size = max - min + 1;
-            pu_arr = malloc(sizeof(struct port)*pu_arr_size);
-            for(int j = 0; j < pu_arr_size; j++) {
-                pu_arr[j].port = 0;
-                pu_arr[j].count = 0;
-                pu_arr[j].passed = false;
-            }
-
-            for(int j = 0; j < size; j++) {
-                pu_arr[pu_arr_subst[j].port-1].port = pu_arr_subst[j].port;
-            }
-            min_port_pu = min;
-            free(pu_arr_subst);
         }
         else { // vkladas cely cislo do pole
             pu_arr = malloc(sizeof(struct port));
@@ -337,9 +314,9 @@ int main(int argc, char **argv) {
             pu_arr[0].port = (int)strtol(pu, &end, 10);
             pu_arr[0].count = 0;
             pu_arr[0].passed = false;
+            pu_arr[0].rst = 0;
             size = 1;
             pu_arr_size = 1;
-            min_port_pu = pu_arr[0].port;
         }
         for(int i = 0; i < size; i++) {
             if(pu_arr[i].port > 65535 || pu_arr[i].port < 0) {
@@ -357,15 +334,11 @@ int main(int argc, char **argv) {
     ///////////////////////////////////////////////////////////
     // ZPRACUJ TARGET
     ///////////////////////////////////////////////////////////    
-    struct hostent *hname;
 	struct sockaddr_in target;
-    if ((hname = gethostbyname(host)) == NULL) {
-        fprintf(stderr,"Nelze prevest host na ip.\n");
-        exit(1);
-    }
-    memcpy(&target.sin_addr, hname->h_addr_list[0], hname->h_length);
+    memcpy(&target.sin_addr, host_to_ip(host), 16);
     target.sin_family = AF_INET;
     target.sin_port = htons(1337);
+    host = host_to_ip(host);
 
     ///////////////////////////////////////////////////////////
     // VYTVOR SEZNAM ROZHRANI
